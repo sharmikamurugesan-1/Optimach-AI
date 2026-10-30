@@ -10,11 +10,19 @@ shap
 imbalanced-learn
 matplotlib
 seaborn
+
+# App
 Flask
 Flask-Cors
 gunicorn
 streamlit
+
+# Data and model saving
 ucimlrepo
 joblib
+
+# Deep Learning
 tensorflow
+
+# Testing
 pytest
