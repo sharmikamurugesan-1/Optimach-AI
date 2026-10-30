@@ -1,0 +1,22 @@
+numpy
+pandas
+scipy
+scikit-learn
+xgboost
+lightgbm
+torch
+optuna
+shap
+imbalanced-learn
+matplotlib
+seaborn
+
+# App
+streamlit
+
+# Data and model saving
+ucimlrepo
+joblib
+
+# Testing
+pytest
