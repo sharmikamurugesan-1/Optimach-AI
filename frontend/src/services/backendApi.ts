@@ -32,7 +32,9 @@ export interface BackendPredictionResponse {
   message?: string;
 }
 
-const BACKEND_BASE_URL = 'http://127.0.0.1:5000';
+// In production (same origin), use '' for relative URLs.
+// In development, proxy through Vite or use localhost.
+const BACKEND_BASE_URL = import.meta.env.DEV ? 'http://127.0.0.1:5000' : '';
 
 /**
  * Checks if the Optimach-AI Flask Backend is online and returns model metadata

@@ -1,6 +1,7 @@
 """
 Optimach-AI Root Application Entrypoint
 Delegates execution to the backend Flask ML API.
+Gunicorn / Render will import `app` from this module.
 """
 
 import os
@@ -21,4 +22,4 @@ if __name__ == "__main__":
     print("Optimach-AI Industrial Predictive Maintenance System")
     print("Starting Flask Backend API on http://127.0.0.1:5000 ...")
     print("=" * 60)
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)

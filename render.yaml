@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: optimach-ai
+    runtime: python
+    buildCommand: |
+      pip install -r requirements.txt
+      cd frontend && npm install && npm run build && cd ..
+      rm -rf backend/static
+      cp -r frontend/dist backend/static
+    startCommand: cd backend && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: NODE_VERSION
+        value: "20"

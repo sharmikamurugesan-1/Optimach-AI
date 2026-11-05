@@ -34,6 +34,9 @@ dist/
 .vite/
 *.local
 
+# Keep backend/static (built frontend served by Flask)
+!backend/static/
+
 # IDE & OS
 .vscode/
 .idea/

@@ -1,10 +1,13 @@
 import os
 import joblib
 import numpy as np
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
-app = Flask(__name__)
+# Serve React frontend from 'static' directory (built by Vite)
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+
+app = Flask(__name__, static_folder=STATIC_DIR, static_url_path='')
 CORS(app)
 
 # ==================================================
@@ -101,7 +104,6 @@ if os.path.isfile(lstm_path):
 # 3. API ENDPOINTS
 # ==================================================
 
-@app.route("/", methods=["GET"])
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({
@@ -111,6 +113,19 @@ def health():
         "models_loaded": list(loaded_models.keys()) + (["LSTM"] if lstm_model else []),
         "total_models": len(loaded_models) + (1 if lstm_model else 0)
     }), 200
+
+# Serve React frontend
+@app.route("/", methods=["GET"])
+def serve_index():
+    return send_from_directory(app.static_folder, "index.html")
+
+@app.errorhandler(404)
+def fallback(e):
+    """Serve index.html for client-side routing (React Router)."""
+    index_path = os.path.join(app.static_folder, "index.html")
+    if os.path.isfile(index_path):
+        return send_from_directory(app.static_folder, "index.html")
+    return jsonify({"error": "Not found"}), 404
 
 @app.route("/api/models", methods=["GET"])
 def list_models():
