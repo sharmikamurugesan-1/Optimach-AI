@@ -619,10 +619,49 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
         {/* Fleet Cards or Table */}
         {viewMode === 'cards' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
             {filteredMachines.map(machine => {
               const theme = getStatusTheme(machine.status);
               const telem = latestTelemetry[machine.id];
+              const isCrit = machine.status === 'critical';
+              const isWarn = machine.status === 'warning';
+
+              // Visual styling variations per machine condition and type
+              const cardStyles = isCrit
+                ? {
+                    bg: 'bg-gradient-to-br from-[#FEF2F2] via-[#FFFFFF] to-[#FFF5F5]',
+                    border: 'border-[#FECACA] hover:border-[#EF4444]',
+                    accentBar: 'bg-[#DC2626]',
+                    iconBg: 'bg-gradient-to-br from-[#DC2626] to-[#EF4444] text-white shadow-xs',
+                    idColor: 'text-[#DC2626]',
+                    badge: 'bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]',
+                    sensorBg: 'bg-[#FFFFFF]/90 border-[#FEE2E2]',
+                    healthText: 'text-[#DC2626]',
+                    healthBar: 'bg-[#DC2626]',
+                  }
+                : isWarn
+                ? {
+                    bg: 'bg-gradient-to-br from-[#FFFBEB] via-[#FFFFFF] to-[#FEF3C7]/40',
+                    border: 'border-[#FDE68A] hover:border-[#F59E0B]',
+                    accentBar: 'bg-[#D97706]',
+                    iconBg: 'bg-gradient-to-br from-[#D97706] to-[#F59E0B] text-white shadow-xs',
+                    idColor: 'text-[#D97706]',
+                    badge: 'bg-[#FFFBEB] text-[#D97706] border-[#FDE68A]',
+                    sensorBg: 'bg-[#FFFFFF]/90 border-[#FEF3C7]',
+                    healthText: 'text-[#D97706]',
+                    healthBar: 'bg-[#D97706]',
+                  }
+                : {
+                    bg: 'bg-gradient-to-br from-[#F0FDF4] via-[#FFFFFF] to-[#DCFCE7]/30',
+                    border: 'border-[#A7F3D0] hover:border-[#10B981]',
+                    accentBar: 'bg-[#059669]',
+                    iconBg: 'bg-gradient-to-br from-[#059669] to-[#10B981] text-white shadow-xs',
+                    idColor: 'text-[#059669]',
+                    badge: 'bg-[#ECFDF5] text-[#059669] border-[#A7F3D0]',
+                    sensorBg: 'bg-[#FFFFFF]/90 border-[#D1FAE5]',
+                    healthText: 'text-[#059669]',
+                    healthBar: 'bg-[#059669]',
+                  };
 
               return (
                 <div
@@ -631,57 +670,93 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                     onSelectMachine(machine.id);
                     onNavigateToView('machines');
                   }}
-                  className="bg-[#FFFFFF] border border-[#EDE9FE] hover:border-[#DDD6FE] hover:shadow-card rounded-2xl p-4.5 flex flex-col justify-between transition-all cursor-pointer group"
+                  className={`${cardStyles.bg} ${cardStyles.border} rounded-2xl p-4 sm:p-5 flex flex-col justify-between transition-all duration-200 cursor-pointer group shadow-card hover:shadow-lg hover:-translate-y-1 relative overflow-hidden`}
                 >
+                  {/* Left Color Accent Bar */}
+                  <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${cardStyles.accentBar}`} />
+
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-mono font-bold text-xs text-[#7C3AED]">
-                        {machine.id}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${theme.badge}`}>
+                    {/* Header: Machine ID + Status Badge */}
+                    <div className="flex items-center justify-between mb-3 pl-1">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-7 h-7 rounded-lg ${cardStyles.iconBg} flex items-center justify-center font-bold text-xs`}>
+                          <Cpu className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className={`font-mono font-bold text-xs ${cardStyles.idColor} block leading-tight`}>
+                            {machine.id}
+                          </span>
+                          <span className="text-[10px] text-[#64748B] font-mono">
+                            {machine.model}
+                          </span>
+                        </div>
+                      </div>
+
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${cardStyles.badge} flex items-center gap-1 shadow-2xs`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${isCrit ? 'bg-[#DC2626] animate-pulse' : isWarn ? 'bg-[#D97706]' : 'bg-[#059669]'}`} />
                         {theme.label}
                       </span>
                     </div>
 
-                    <h4 className="font-semibold text-sm text-[#1E1B4B] group-hover:text-[#7C3AED] transition-colors truncate">
+                    {/* Machine Title */}
+                    <h4 className="font-bold text-sm text-[#1E1B4B] group-hover:text-[#7C3AED] transition-colors truncate pl-1">
                       {machine.name}
                     </h4>
 
-                    <div className="flex items-center gap-1 text-[11px] text-[#64748B] mt-0.5 mb-3">
-                      <MapPin className="w-3 h-3 text-[#94A3B8]" />
+                    {/* Location */}
+                    <div className="flex items-center gap-1.5 text-[11px] text-[#64748B] mt-1 mb-3.5 pl-1">
+                      <MapPin className="w-3.5 h-3.5 text-[#7C3AED]" />
                       <span className="truncate">{machine.location}</span>
                     </div>
 
-                    {/* Sensor stats */}
-                    <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-[#FAF9FD] border border-[#EDE9FE] text-xs">
+                    {/* Dynamic Sensor Stats Grid */}
+                    <div className={`grid grid-cols-2 gap-2 p-3 rounded-xl ${cardStyles.sensorBg} border text-xs shadow-2xs`}>
                       <div>
-                        <span className="text-[10px] text-[#64748B] block">Vibration</span>
-                        <span className={`font-mono font-bold ${
+                        <span className="text-[10px] text-[#64748B] font-medium flex items-center gap-1 mb-0.5">
+                          <Activity className="w-3 h-3 text-[#7C3AED]" /> Vibration
+                        </span>
+                        <span className={`font-mono font-bold text-xs ${
                           (telem?.vibration || 0) > 50 ? 'text-[#DC2626]' : 'text-[#1E1B4B]'
                         }`}>
-                          {telem?.vibration?.toFixed(1) || 40.0} mm/s
+                          {telem?.vibration?.toFixed(1) || 40.0} <span className="text-[10px] font-normal text-[#64748B]">mm/s</span>
                         </span>
                       </div>
                       <div>
-                        <span className="text-[10px] text-[#64748B] block">Temperature</span>
-                        <span className="font-mono font-bold text-[#1E1B4B]">
-                          {telem?.temperature?.toFixed(1) || 70.0} °C
+                        <span className="text-[10px] text-[#64748B] font-medium flex items-center gap-1 mb-0.5">
+                          <Thermometer className="w-3 h-3 text-[#DC2626]" /> Temp
+                        </span>
+                        <span className="font-mono font-bold text-xs text-[#1E1B4B]">
+                          {telem?.temperature?.toFixed(1) || 70.0} <span className="text-[10px] font-normal text-[#64748B]">°C</span>
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-3 mt-3 border-t border-[#F5F3FF] text-xs">
-                    <div>
-                      <span className="text-[10px] text-[#64748B] block">Health Score</span>
-                      <span className="font-mono font-bold text-sm text-[#1E1B4B]">
+                  {/* Footer: Health Progress Bar & Action */}
+                  <div className="pt-3.5 mt-3.5 border-t border-[#EDE9FE]/70 flex flex-col gap-2 pl-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-[11px] text-[#64748B] font-medium">Health Condition:</span>
+                      <span className={`font-mono font-bold text-xs ${cardStyles.healthText}`}>
                         {machine.healthScore}%
                       </span>
                     </div>
 
-                    <span className="text-[#7C3AED] font-semibold text-[11px] group-hover:underline flex items-center gap-0.5">
-                      View Details &rsaquo;
-                    </span>
+                    {/* Health Score Mini Meter */}
+                    <div className="w-full bg-[#E2E8F0] h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${cardStyles.healthBar} rounded-full transition-all duration-500`}
+                        style={{ width: `${machine.healthScore}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] pt-1">
+                      <span className="text-[10px] text-[#94A3B8] font-mono">
+                        {machine.runningHours.toLocaleString()} hrs logged
+                      </span>
+                      <span className="text-[#7C3AED] font-bold group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
+                        Inspect Asset &rsaquo;
+                      </span>
+                    </div>
                   </div>
                 </div>
               );

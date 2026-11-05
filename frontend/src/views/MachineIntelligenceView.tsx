@@ -2,24 +2,24 @@ import React, { useState } from 'react';
 import { Machine, SensorTelemetry, MachineEvent, PredictionResult } from '../types';
 import { Machine3DInspection } from '../components/Machine3DInspection';
 import { MachineComponentBlueprint } from '../components/MachineComponentBlueprint';
+import { MachineEventTimeline } from '../components/MachineEventTimeline';
 import { SensorChart } from '../components/SensorChart';
 import { FailurePredictionCard } from '../components/FailurePredictionCard';
-import { MachineEventTimeline } from '../components/MachineEventTimeline';
 import { predictMachineFailure } from '../services/mlEngine';
 import { 
   Activity, 
+  ChevronDown, 
+  Clock, 
+  MapPin, 
+  Cpu, 
+  Thermometer, 
   Gauge, 
   Zap, 
-  RotateCw, 
-  Thermometer, 
-  MapPin, 
-  ChevronDown,
-  Clock,
+  AlertTriangle, 
+  CheckCircle2, 
   Layers,
   Wrench,
-  AlertTriangle,
-  CheckCircle2,
-  Cpu
+  Maximize2
 } from 'lucide-react';
 import { getStatusTheme } from '../utils/formatters';
 
@@ -31,7 +31,7 @@ interface MachineIntelligenceViewProps {
   events: MachineEvent[];
   onSelectMachine: (machineId: string) => void;
   onAcknowledgeEvent: (eventId: string) => void;
-  onCreateWorkOrder?: (title: string, action: string) => void;
+  onCreateWorkOrder: (task: string, notes: string) => void;
 }
 
 export const MachineIntelligenceView: React.FC<MachineIntelligenceViewProps> = ({
@@ -98,33 +98,35 @@ export const MachineIntelligenceView: React.FC<MachineIntelligenceViewProps> = (
             </div>
             <div className="flex items-center gap-3 text-xs text-[#64748B] mt-0.5">
               <span className="flex items-center gap-1">
-                <MapPin className="w-3 h-3 text-[#7C3AED]" /> {selectedMachine.location}
+                <MapPin className="w-3.5 h-3.5 text-[#7C3AED]" /> {selectedMachine.location}
               </span>
               <span>•</span>
-              <span>Running: <strong className="text-[#1E1B4B] font-mono">{selectedMachine.runningHours.toLocaleString()}</strong> hrs</span>
+              <span className="flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-[#64748B]" /> Running: <strong className="text-[#1E1B4B]">{selectedMachine.runningHours.toLocaleString()} hrs</strong>
+              </span>
               <span>•</span>
-              <span>Age: <strong className="text-[#1E1B4B] font-mono">{selectedMachine.age}</strong> yrs</span>
+              <span>Age: <strong className="text-[#1E1B4B]">{selectedMachine.age} yrs</strong></span>
             </div>
           </div>
         </div>
 
-        {/* Machine Condition & Overall Health Dial */}
-        <div className="flex items-center gap-4 bg-[#FAF9FD] p-3 sm:p-3.5 rounded-xl border border-[#EDE9FE] self-start lg:self-auto shadow-xs">
-          <div>
+        {/* Condition Metric & Circular Health Score */}
+        <div className="flex items-center gap-5 self-end sm:self-auto border-t lg:border-t-0 pt-3 lg:pt-0 border-[#F5F3FF] w-full lg:w-auto justify-between lg:justify-end">
+          <div className="text-right">
             <span className="text-[10px] uppercase font-bold text-[#64748B] block font-mono">
-              FLEET CONDITION
+              Fleet Condition
             </span>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xl font-display font-bold text-[#1E1B4B] tabular-nums">
+              <span className="text-xl sm:text-2xl font-mono font-bold text-[#1E1B4B]">
                 {selectedMachine.healthScore}%
               </span>
-              <span className={`px-2 py-0.2 rounded-full text-[10px] font-bold ${statusTheme.badge}`}>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusTheme.badge}`}>
                 {statusTheme.label}
               </span>
             </div>
           </div>
 
-          <div className="w-10 h-10 rounded-full border-2 border-[#EDE9FE] relative flex items-center justify-center">
+          <div className="w-10 h-10 rounded-full border-2 border-[#EDE9FE] relative flex items-center justify-center flex-shrink-0">
             <svg className="w-10 h-10 -rotate-90">
               <circle
                 cx="20"
@@ -157,7 +159,7 @@ export const MachineIntelligenceView: React.FC<MachineIntelligenceViewProps> = (
         </div>
       </div>
 
-      {/* 2. Balanced Upper Section: Compact 3D Visual (7 cols) + Live Sensor Channels & Specs (5 cols) */}
+      {/* 2. Upper Section: 3D Visual Inspection (7 cols) + Live Sensor Channels & Specs (5 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column (7 cols): Compact 3D Machine Inspection or 2D Blueprint */}
         <div className="lg:col-span-7 flex flex-col gap-4">
@@ -235,7 +237,7 @@ export const MachineIntelligenceView: React.FC<MachineIntelligenceViewProps> = (
                     <Gauge className="w-3 h-3 text-[#2563EB]" /> Pressure
                   </span>
                   <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
-                    isPressOut ? 'bg-[#FFFBEB] text-[#D97706]' : 'bg-[#ECFDF5] text-[#059669]'
+                    isPressOut ? 'bg-[#FEF2F2] text-[#DC2626]' : 'bg-[#ECFDF5] text-[#059669]'
                   }`}>
                     {isPressOut ? 'Out of Spec' : 'Normal'}
                   </span>
@@ -243,28 +245,28 @@ export const MachineIntelligenceView: React.FC<MachineIntelligenceViewProps> = (
                 <div className="text-lg font-mono font-bold text-[#1E1B4B]">
                   {currentTelemetry.pressure.toFixed(1)} <span className="text-xs font-normal text-[#64748B]">PSI</span>
                 </div>
-                <span className="text-[10px] text-[#94A3B8] block mt-0.5 font-mono">Limit: 85 – 118</span>
+                <span className="text-[10px] text-[#94A3B8] block mt-0.5 font-mono">Limit: 85 - 118</span>
               </div>
 
-              {/* Rotation */}
+              {/* Speed */}
               <div className="p-3 rounded-xl bg-[#FAF9FD] border border-[#EDE9FE]">
                 <div className="flex items-center justify-between text-[11px] mb-1">
                   <span className="text-[#64748B] font-mono uppercase flex items-center gap-1">
-                    <RotateCw className="w-3 h-3 text-[#7C3AED]" /> Speed
+                    <Zap className="w-3 h-3 text-[#7C3AED]" /> Speed
                   </span>
-                  <span className="text-[9px] font-bold text-[#059669] bg-[#ECFDF5] px-1.5 py-0.2 rounded-full">
+                  <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-[#ECFDF5] text-[#059669]">
                     Normal
                   </span>
                 </div>
                 <div className="text-lg font-mono font-bold text-[#1E1B4B]">
                   {Math.round(currentTelemetry.rotate)} <span className="text-xs font-normal text-[#64748B]">RPM</span>
                 </div>
-                <span className="text-[10px] text-[#94A3B8] block mt-0.5 font-mono">Limit: 375 – 515</span>
+                <span className="text-[10px] text-[#94A3B8] block mt-0.5 font-mono">Limit: 375 - 515</span>
               </div>
             </div>
           </div>
 
-          {/* Machine Identity & Specifications Card */}
+          {/* Machine Nameplate & Specifications Card */}
           <div className="bg-[#FFFFFF] border border-[#EDE9FE] rounded-2xl p-4 sm:p-5 shadow-card flex flex-col gap-3">
             <div className="pb-2 border-b border-[#F5F3FF] flex items-center justify-between">
               <span className="text-xs font-bold text-[#1E1B4B]">Specifications & Nameplate</span>
@@ -293,30 +295,31 @@ export const MachineIntelligenceView: React.FC<MachineIntelligenceViewProps> = (
         </div>
       </div>
 
-      {/* 3. Lower Section: Failure Prediction & Sensor Trend Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <div className="lg:col-span-6">
-          <FailurePredictionCard
-            prediction={prediction}
-            machine={selectedMachine}
-            onCreateWorkOrder={onCreateWorkOrder}
-          />
-        </div>
-
-        <div className="lg:col-span-6">
-          <SensorChart
-            data={telemetryHistory}
-            title={`${selectedMachine.name} (${selectedMachine.id}) — Telemetry Trend`}
-          />
-        </div>
+      {/* 3. Lower Section: Failure Prediction (Full Width) */}
+      <div className="w-full">
+        <FailurePredictionCard
+          prediction={prediction}
+          machine={selectedMachine}
+          onCreateWorkOrder={onCreateWorkOrder}
+        />
       </div>
 
-      {/* 4. Machine Event Timeline */}
-      <MachineEventTimeline
-        events={events}
-        machineId={selectedMachine.id}
-        onAcknowledgeEvent={onAcknowledgeEvent}
-      />
+      {/* 4. Full-Screen Width Telemetry Trend Chart placed below it */}
+      <div className="w-full">
+        <SensorChart
+          data={telemetryHistory}
+          title={`${selectedMachine.name} (${selectedMachine.id}) — Telemetry Trend`}
+        />
+      </div>
+
+      {/* 5. Machine Event Timeline */}
+      <div className="w-full">
+        <MachineEventTimeline
+          events={events}
+          machineId={selectedMachine.id}
+          onAcknowledgeEvent={onAcknowledgeEvent}
+        />
+      </div>
     </div>
   );
 };

@@ -92,7 +92,7 @@ export const DataCheckView: React.FC<DataCheckViewProps> = ({
     setEvalResult(null);
   };
 
-  const handleRunManualInference = () => {
+  const handleRunManualInference = async () => {
     const telem: SensorTelemetry = {
       timestamp: new Date().toLocaleTimeString(),
       volt: Number(volt),
@@ -104,10 +104,8 @@ export const DataCheckView: React.FC<DataCheckViewProps> = ({
     const pred = predictMachineFailure(selectedMachineId, telem, 8);
     setEvalResult(pred);
     onApplyManualTelemetry(selectedMachineId, telem);
-  };
 
-  const handleRunBackendInference = async () => {
-    setIsLoadingBackend(true);
+    // Automatically check Flask ML backend seamlessly in background
     try {
       const res = await queryBackendPrediction({
         Type: 'L',
@@ -117,11 +115,11 @@ export const DataCheckView: React.FC<DataCheckViewProps> = ({
         vibration: Number(vibration),
         volt: Number(volt)
       });
-      setBackendResult(res);
-    } catch (e: any) {
-      setBackendResult({ status: 'error', message: e.message });
-    } finally {
-      setIsLoadingBackend(false);
+      if (res && res.status === 'success') {
+        setBackendResult(res);
+      }
+    } catch {
+      // Graceful fallback to edge logic
     }
   };
 
@@ -499,20 +497,12 @@ export const DataCheckView: React.FC<DataCheckViewProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-2 mt-2">
+            <div className="mt-2">
               <button
                 onClick={handleRunManualInference}
-                className="flex-1 py-3 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2"
+                className="w-full py-3 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2"
               >
-                <Play className="w-4 h-4 fill-white" /> Check Condition (Edge Gateway)
-              </button>
-              <button
-                onClick={handleRunBackendInference}
-                disabled={isLoadingBackend}
-                className="flex-1 py-3 rounded-xl bg-[#EFF6FF] hover:bg-[#DBEAFE] text-[#1D4ED8] border border-[#BFDBFE] text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2"
-              >
-                <Sparkles className="w-4 h-4 text-[#2563EB]" />
-                {isLoadingBackend ? 'Connecting Backend...' : 'Query Flask ML Models'}
+                <Play className="w-4 h-4 fill-white" /> Check Condition (Diagnostic Engine)
               </button>
             </div>
           </div>
