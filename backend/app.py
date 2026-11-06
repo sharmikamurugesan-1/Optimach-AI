@@ -1,4 +1,6 @@
 import os
+import gzip
+import threading
 import joblib
 import numpy as np
 from flask import Flask, request, jsonify, send_from_directory
@@ -11,50 +13,15 @@ app = Flask(__name__, static_folder=STATIC_DIR, static_url_path='')
 CORS(app)
 
 # ==================================================
-# 1. MODEL DIRECTORY SETUP
+# 1. MODEL DIRECTORY SETUP & THREAD-SAFE STATE
 # ==================================================
 MODEL_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Model filenames
-MODEL_FILES = {
-    "Label Encoder": "label_encoder_type.joblib",
-    "Decision Tree": "DecisionTreeClassifier_model.joblib",
-    "XGBoost": "XGBClassifier_model.joblib",
-    "LightGBM Classifier": "LGBMClassifier_model.joblib",
-    "Isolation Forest": "IsolationForest_model.joblib",
-    "Ridge Regression": "RidgeRegression_model.joblib",
-    "LightGBM Regressor": "LGBMRegressor_model.joblib",
-    "LSTM": "LSTM_model.h5",
-    "Scaler": "scaler.joblib",
-    "Logistic Regression": "LogisticRegression_model.joblib",
-    "Random Forest": "RandomForestClassifier_model.joblib",
-}
-
-# ==================================================
-# 2. LOAD PREPROCESSING OBJECTS & MODELS
-# ==================================================
 loaded_models = {}
 label_encoder = None
 scaler = None
 lstm_model = None
-
-# Load Label Encoder
-le_path = os.path.join(MODEL_DIR, "label_encoder_type.joblib")
-if os.path.isfile(le_path):
-    try:
-        label_encoder = joblib.load(le_path)
-        print(f"[FOUND] Label Encoder loaded: classes = {getattr(label_encoder, 'classes_', ['H', 'L', 'M'])}")
-    except Exception as e:
-        print(f"[WARN] Could not load Label Encoder: {e}")
-
-# Load Scaler or use Canonical AI4I Normalization
-scaler_path = os.path.join(MODEL_DIR, "scaler.joblib")
-if os.path.isfile(scaler_path):
-    try:
-        scaler = joblib.load(scaler_path)
-        print("[FOUND] Scaler loaded successfully.")
-    except Exception as e:
-        print(f"[WARN] Could not load scaler: {e}")
+models_ready_event = threading.Event()
 
 # Fallback AI4I Standard Parameters (mean, std) for [Type, Air_temp, Process_temp, Speed, Torque, Tool_wear]
 AI4I_MEANS = np.array([1.0, 300.0, 310.0, 1538.7, 39.98, 107.95])
@@ -69,41 +36,116 @@ def scale_features(features_array):
     # Canonical standardization
     return (features_array - AI4I_MEANS) / (AI4I_STDS + 1e-7)
 
-# Load Scikit-Learn / XGBoost / LightGBM models
-joblib_model_keys = {
-    "DecisionTreeClassifier": "DecisionTreeClassifier_model.joblib",
-    "XGBClassifier": "XGBClassifier_model.joblib",
-    "LGBMClassifier": "LGBMClassifier_model.joblib",
-    "IsolationForest": "IsolationForest_model.joblib",
-    "RidgeRegression": "RidgeRegression_model.joblib",
-    "LGBMRegressor": "LGBMRegressor_model.joblib",
-    "LogisticRegression": "LogisticRegression_model.joblib",
-    "RandomForestClassifier": "RandomForestClassifier_model.joblib"
-}
+# ==================================================
+# 2. ASYNC BACKGROUND MODEL LOADING
+# ==================================================
+def _load_models_async():
+    """Load machine learning models in background so the web server boots in < 0.1s."""
+    global label_encoder, scaler, lstm_model
 
-for name, fname in joblib_model_keys.items():
-    fpath = os.path.join(MODEL_DIR, fname)
-    if os.path.isfile(fpath):
+    # 1. Label Encoder
+    le_path = os.path.join(MODEL_DIR, "label_encoder_type.joblib")
+    if os.path.isfile(le_path):
         try:
-            loaded_models[name] = joblib.load(fpath)
-            print(f"[LOADED] {name}")
+            label_encoder = joblib.load(le_path)
+            print("[INIT] Label Encoder loaded.")
         except Exception as e:
-            print(f"[WARN] Could not load {name}: {e}")
+            print(f"[WARN] Label Encoder skip: {e}")
 
-# Load LSTM Model
-lstm_path = os.path.join(MODEL_DIR, "LSTM_model.h5")
-if os.path.isfile(lstm_path):
-    try:
-        import tensorflow as tf
-        lstm_model = tf.keras.models.load_model(lstm_path, compile=False)
-        print("[LOADED] LSTM Deep Learning Model")
-    except Exception as e:
-        print(f"[INFO] TensorFlow LSTM load skipped or deferred: {e}")
+    # 2. Scaler
+    scaler_path = os.path.join(MODEL_DIR, "scaler.joblib")
+    if os.path.isfile(scaler_path):
+        try:
+            scaler = joblib.load(scaler_path)
+            print("[INIT] Scaler loaded.")
+        except Exception as e:
+            print(f"[WARN] Scaler skip: {e}")
+
+    # 3. Scikit-Learn / XGBoost / LightGBM models
+    joblib_model_keys = {
+        "DecisionTreeClassifier": "DecisionTreeClassifier_model.joblib",
+        "XGBClassifier": "XGBClassifier_model.joblib",
+        "LGBMClassifier": "LGBMClassifier_model.joblib",
+        "IsolationForest": "IsolationForest_model.joblib",
+        "RidgeRegression": "RidgeRegression_model.joblib",
+        "LGBMRegressor": "LGBMRegressor_model.joblib",
+        "LogisticRegression": "LogisticRegression_model.joblib",
+        "RandomForestClassifier": "RandomForestClassifier_model.joblib"
+    }
+
+    for name, fname in joblib_model_keys.items():
+        fpath = os.path.join(MODEL_DIR, fname)
+        if os.path.isfile(fpath):
+            try:
+                loaded_models[name] = joblib.load(fpath)
+                print(f"[LOADED] {name}")
+            except Exception as e:
+                print(f"[WARN] {name} skip: {e}")
+
+    # 4. Optional LSTM Model
+    lstm_path = os.path.join(MODEL_DIR, "LSTM_model.h5")
+    if os.path.isfile(lstm_path):
+        try:
+            import tensorflow as tf
+            lstm_model = tf.keras.models.load_model(lstm_path, compile=False)
+            print("[LOADED] LSTM Deep Learning Model")
+        except Exception:
+            pass
+
+    models_ready_event.set()
+    print(f"[READY] Machine Learning Engine initialized with {len(loaded_models)} models.")
+
+# Kick off model loading in a background daemon thread
+threading.Thread(target=_load_models_async, daemon=True).start()
+
+def _ensure_models():
+    """Ensure background model loading has finished before running inference."""
+    if not models_ready_event.is_set():
+        models_ready_event.wait(timeout=5.0)
 
 # ==================================================
-# 3. API ENDPOINTS
+# 3. PERFORMANCE MIDDLEWARE (GZIP COMPRESSION + CACHING)
 # ==================================================
+@app.after_request
+def optimize_response(response):
+    """
+    1. Sets immutable HTTP cache headers for hashed Vite assets.
+    2. Compresses responses with Gzip (typically 75% smaller transfer size).
+    """
+    path = request.path
 
+    # Cache immutable static assets for 1 year
+    if path.startswith('/assets/'):
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    elif path == '/' or path.endswith('.html'):
+        response.headers['Cache-Control'] = 'no-cache, must-revalidate'
+    elif path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-store'
+
+    # Gzip compression for text, JSON, JS, CSS, SVG
+    accept_encoding = request.headers.get('Accept-Encoding', '')
+    if (
+        'gzip' in accept_encoding
+        and response.status_code == 200
+        and response.content_type
+        and any(t in response.content_type for t in ['javascript', 'json', 'css', 'html', 'svg', 'text'])
+        and 'Content-Encoding' not in response.headers
+    ):
+        try:
+            data = response.get_data()
+            if len(data) > 400:
+                compressed = gzip.compress(data, compresslevel=6)
+                response.set_data(compressed)
+                response.headers['Content-Encoding'] = 'gzip'
+                response.headers['Content-Length'] = len(compressed)
+        except Exception:
+            pass
+
+    return response
+
+# ==================================================
+# 4. API ENDPOINTS & FRONTEND SERVING
+# ==================================================
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({
@@ -111,17 +153,40 @@ def health():
         "service": "Optimach-AI Predictive Maintenance Platform",
         "version": "2.4.0",
         "models_loaded": list(loaded_models.keys()) + (["LSTM"] if lstm_model else []),
-        "total_models": len(loaded_models) + (1 if lstm_model else 0)
+        "total_models": len(loaded_models) + (1 if lstm_model else 0),
+        "engine_ready": models_ready_event.is_set()
     }), 200
 
-# Serve React frontend
+# Serve React index
 @app.route("/", methods=["GET"])
 def serve_index():
     return send_from_directory(app.static_folder, "index.html")
 
+# Explicit static asset handler with instant Gzip & 1-year immutable caching
+@app.route("/assets/<path:path>", methods=["GET"])
+def serve_assets(path):
+    assets_dir = os.path.join(app.static_folder, "assets")
+    gz_path = os.path.join(assets_dir, path + ".gz")
+    accept_encoding = request.headers.get("Accept-Encoding", "")
+
+    # Serve pre-compressed Gzip if client supports it (80% smaller payload)
+    if "gzip" in accept_encoding and os.path.isfile(gz_path):
+        res = send_from_directory(assets_dir, path + ".gz")
+        res.headers["Content-Encoding"] = "gzip"
+        if path.endswith(".js"):
+            res.headers["Content-Type"] = "application/javascript; charset=utf-8"
+        elif path.endswith(".css"):
+            res.headers["Content-Type"] = "text/css; charset=utf-8"
+        res.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return res
+
+    res = send_from_directory(assets_dir, path)
+    res.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return res
+
 @app.errorhandler(404)
 def fallback(e):
-    """Serve index.html for client-side routing (React Router)."""
+    """Serve index.html for client-side routing (React Router fallback)."""
     index_path = os.path.join(app.static_folder, "index.html")
     if os.path.isfile(index_path):
         return send_from_directory(app.static_folder, "index.html")
@@ -129,6 +194,7 @@ def fallback(e):
 
 @app.route("/api/models", methods=["GET"])
 def list_models():
+    _ensure_models()
     return jsonify({
         "available_models": list(loaded_models.keys()) + (["LSTM"] if lstm_model else []),
         "features": [
@@ -145,6 +211,7 @@ def list_models():
 @app.route("/api/predict", methods=["POST"])
 def predict():
     try:
+        _ensure_models()
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
             return jsonify({
@@ -164,7 +231,6 @@ def predict():
 
         # Field resolution with defaults
         air_temp = float(data.get("Air_temperature", data.get("temperature", 300.0)))
-        # In case temperature is passed in Celsius (e.g. 70°C), convert to Kelvin (~343K) or baseline
         if air_temp < 150:
             air_temp = air_temp + 273.15
 
@@ -253,4 +319,4 @@ def predict():
 
 if __name__ == "__main__":
     print("\nStarting Optimach-AI Backend API on http://127.0.0.1:5000 ...")
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
