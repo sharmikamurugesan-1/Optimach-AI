@@ -74,31 +74,31 @@ export const SensorChart: React.FC<SensorChartProps> = ({
 
   // Sensor palette for light mode (minimal purple + soft blue)
   const sensorColors = {
-    vibration: { stroke: '#7C3AED', fill: 'rgba(124, 58, 237, 0.08)', badge: 'text-[#7C3AED]' },
-    pressure: { stroke: '#3B82F6', fill: 'rgba(59, 130, 246, 0.08)', badge: 'text-[#2563EB]' },
-    rotate: { stroke: '#8B5CF6', fill: 'rgba(139, 92, 246, 0.08)', badge: 'text-[#7C3AED]' },
-    volt: { stroke: '#059669', fill: 'rgba(5, 150, 105, 0.08)', badge: 'text-[#059669]' },
-    temperature: { stroke: '#DC2626', fill: 'rgba(220, 38, 38, 0.08)', badge: 'text-[#DC2626]' },
+    vibration: { stroke: '#7055E8', fill: 'rgba(112, 85, 232, 0.08)', badge: 'text-[#7055E8]' },
+    pressure: { stroke: '#5689D8', fill: 'rgba(86, 137, 216, 0.08)', badge: 'text-[#5689D8]' },
+    rotate: { stroke: '#9785F2', fill: 'rgba(151, 133, 242, 0.08)', badge: 'text-[#9785F2]' },
+    volt: { stroke: '#159B70', fill: 'rgba(21, 155, 112, 0.08)', badge: 'text-[#159B70]' },
+    temperature: { stroke: '#DC5268', fill: 'rgba(220, 82, 104, 0.08)', badge: 'text-[#DC5268]' },
   };
 
   const currentColor = sensorColors[selectedSensor];
 
   return (
-    <div className="w-full bg-[#FFFFFF] border border-[#EDE9FE] rounded-2xl p-5 sm:p-6 shadow-card flex flex-col gap-5">
+    <div className="w-full bg-[#FFFFFF] border border-[#E9E5F5] rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col gap-5">
       {/* Header & Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl bg-[#F5F3FF] text-[#7C3AED]">
+          <div className="p-2 rounded-xl bg-[#F2F0FF] text-[#7055E8]">
             <Activity className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="font-display font-bold text-[#1E1B4B] text-sm sm:text-base">
+            <h3 className="font-bold text-[#24213B] text-sm sm:text-base">
               {title || 'Sensor Trend Analysis'}
             </h3>
-            <p className="text-[11px] text-[#64748B] flex items-center gap-2 mt-0.5 font-mono">
+            <p className="text-[11px] text-[#77758D] flex items-center gap-2 mt-0.5 font-mono">
               <span>Baseline: {baseline.minNorm} – {baseline.maxNorm} {baseline.unit}</span>
               {isAnomalous && (
-                <span className="flex items-center gap-1 text-[#DC2626] font-semibold bg-[#FEF2F2] px-1.5 py-0.2 rounded-full border border-[#FECACA]">
+                <span className="flex items-center gap-1 text-[#DC5268] font-semibold bg-[#FCEBED] px-1.5 py-0.2 rounded-full border border-[#F6B7C1]">
                   <AlertCircle className="w-3 h-3" /> Out of Spec
                 </span>
               )}
@@ -107,7 +107,7 @@ export const SensorChart: React.FC<SensorChartProps> = ({
         </div>
 
         {/* Sensor Selector Pills */}
-        <div className="flex items-center gap-1 bg-[#FAF9FD] p-1 rounded-xl border border-[#EDE9FE]">
+        <div className="flex items-center gap-1 bg-[#FAF9FF] p-1 rounded-xl border border-[#E9E5F5]">
           {(['vibration', 'temperature', 'pressure', 'rotate', 'volt'] as const).map(s => {
             const isSelected = selectedSensor === s;
             return (
@@ -116,8 +116,8 @@ export const SensorChart: React.FC<SensorChartProps> = ({
                 onClick={() => handleSelectSensor(s)}
                 className={`px-2.5 py-1 text-xs rounded-lg transition-all capitalize font-medium ${
                   isSelected
-                    ? 'bg-[#FFFFFF] text-[#7C3AED] font-bold shadow-xs border border-[#EDE9FE]'
-                    : 'text-[#64748B] hover:text-[#1E1B4B]'
+                    ? 'bg-[#FFFFFF] text-[#7055E8] font-bold shadow-sm border border-[#E9E5F5]'
+                    : 'text-[#77758D] hover:text-[#24213B]'
                 }`}
               >
                 {s}
@@ -127,15 +127,15 @@ export const SensorChart: React.FC<SensorChartProps> = ({
         </div>
 
         {/* Time range controls */}
-        <div className="flex items-center gap-1 bg-[#FAF9FD] p-1 rounded-xl border border-[#EDE9FE]">
+        <div className="flex items-center gap-1 bg-[#FAF9FF] p-1 rounded-xl border border-[#E9E5F5]">
           {(['1h', '6h', '12h', '24h'] as const).map(tr => (
             <button
               key={tr}
               onClick={() => setTimeRange(tr)}
-              className={`px-2 py-0.5 text-xs rounded-lg transition-all font-mono ${
+              className={`px-2.5 py-1 text-xs rounded-lg transition-all font-mono font-medium ${
                 timeRange === tr
-                  ? 'bg-[#7C3AED] text-white font-bold shadow-xs'
-                  : 'text-[#64748B] hover:text-[#1E1B4B]'
+                  ? 'bg-[#7055E8] text-white font-bold shadow-sm'
+                  : 'text-[#77758D] hover:text-[#24213B]'
               }`}
             >
               {tr}
@@ -145,7 +145,7 @@ export const SensorChart: React.FC<SensorChartProps> = ({
       </div>
 
       {/* SVG Chart Surface */}
-      <div className="relative w-full overflow-hidden bg-[#FAF9FD] rounded-xl border border-[#EDE9FE] p-2">
+      <div className="relative w-full overflow-hidden bg-[#FAF9FF] rounded-xl border border-[#E9E5F5] p-2">
         <svg
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           className="w-full h-auto overflow-visible select-none"
@@ -156,7 +156,7 @@ export const SensorChart: React.FC<SensorChartProps> = ({
             y1={padding.top}
             x2={svgWidth - padding.right}
             y2={padding.top}
-            stroke="#EDE9FE"
+            stroke="#E9E5F5"
             strokeDasharray="3 3"
           />
           <line
@@ -164,7 +164,7 @@ export const SensorChart: React.FC<SensorChartProps> = ({
             y1={meanY}
             x2={svgWidth - padding.right}
             y2={meanY}
-            stroke="#DDD6FE"
+            stroke="#E8E2FF"
             strokeDasharray="4 4"
           />
           <line
@@ -172,7 +172,7 @@ export const SensorChart: React.FC<SensorChartProps> = ({
             y1={padding.top + graphHeight}
             x2={svgWidth - padding.right}
             y2={padding.top + graphHeight}
-            stroke="#EDE9FE"
+            stroke="#E9E5F5"
           />
 
           {/* Normal Operating Band */}
@@ -181,8 +181,8 @@ export const SensorChart: React.FC<SensorChartProps> = ({
             y={normYTop}
             width={graphWidth}
             height={normBandHeight}
-            fill="#ECFDF5"
-            opacity="0.7"
+            fill="#E8F7F2"
+            opacity="0.8"
           />
 
           {/* Trend Area Fill */}
@@ -215,7 +215,7 @@ export const SensorChart: React.FC<SensorChartProps> = ({
                   cx={cx}
                   cy={cy}
                   r={isHovered ? 6 : isPointAnomalous ? 4.5 : 3}
-                  fill={isPointAnomalous ? '#DC2626' : currentColor.stroke}
+                  fill={isPointAnomalous ? '#DC5268' : currentColor.stroke}
                   stroke="#FFFFFF"
                   strokeWidth="2"
                   className="transition-all"
@@ -230,7 +230,7 @@ export const SensorChart: React.FC<SensorChartProps> = ({
                       width="100"
                       height="34"
                       rx="6"
-                      fill="#1E1B4B"
+                      fill="#24213B"
                       opacity="0.95"
                     />
                     <text
@@ -247,7 +247,7 @@ export const SensorChart: React.FC<SensorChartProps> = ({
                       x={Math.max(padding.left, Math.min(cx - 50, svgWidth - padding.right - 100)) + 50}
                       y={Math.max(5, cy - 42) + 27}
                       textAnchor="middle"
-                      fill="#94A3B8"
+                      fill="#E8E2FF"
                       fontSize="8"
                       fontFamily="monospace"
                     >

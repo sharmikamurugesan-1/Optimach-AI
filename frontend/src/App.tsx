@@ -305,7 +305,7 @@ export const App: React.FC = () => {
   const activeAlertCount = events.filter(e => !e.acknowledged && (e.severity === 'critical' || e.severity === 'warning')).length;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#FAF9FF] text-[#242139] font-sans antialiased bg-ambient-light">
+    <div className="flex h-screen w-screen overflow-hidden bg-[#F7F6FC] text-[#25213A] font-sans antialiased">
       {/* Persistent Left Sidebar */}
       <Sidebar
         activeView={activeView}
@@ -340,6 +340,7 @@ export const App: React.FC = () => {
                   setActiveView('machines');
                 }}
                 onNavigateToView={(v) => setActiveView(v)}
+                onAcknowledgeEvent={handleAcknowledgeEvent}
               />
             )}
 
