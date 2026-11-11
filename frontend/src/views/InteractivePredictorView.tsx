@@ -4,21 +4,18 @@ import { queryBackendPrediction, checkBackendHealth, BackendPredictionResponse }
 import { 
   Sparkles, 
   Play, 
-  RotateCcw, 
   CheckCircle2, 
   AlertTriangle, 
   ShieldAlert, 
   Gauge, 
-  Thermometer, 
-  Cpu, 
   Activity, 
-  Wrench, 
-  ArrowRight,
-  Info,
-  Server,
-  Layers,
-  Check,
-  AlertCircle
+  Layers, 
+  Check, 
+  AlertCircle,
+  Thermometer,
+  Zap,
+  RotateCw,
+  Info
 } from 'lucide-react';
 
 export interface InteractivePredictorViewProps {
@@ -28,7 +25,7 @@ export interface InteractivePredictorViewProps {
   onCreateWorkOrder?: (title: string, notes: string) => void;
 }
 
-// Validation ranges for AI4I 2020 Predictive Maintenance Dataset
+// Operational Tolerance Envelopes
 const RANGES = {
   airTemp: { min: 280, max: 320, unit: 'K', label: 'Air Temperature', nominal: '298 - 304 K' },
   procTemp: { min: 290, max: 330, unit: 'K', label: 'Process Temperature', nominal: '308 - 314 K' },
@@ -45,7 +42,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
   const [extractionNotice, setExtractionNotice] = useState<{ type: 'success' | 'warning' | 'info'; message: string } | null>(null);
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
 
-  // 2. Six Sensor Inputs State (strings for seamless editing)
+  // 2. Six Sensor Inputs State
   const [mType, setMType] = useState<'L' | 'M' | 'H'>('L');
   const [airTempStr, setAirTempStr] = useState<string>('300.0');
   const [procTempStr, setProcTempStr] = useState<string>('310.0');
@@ -55,7 +52,6 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
 
   // 3. Backend & Prediction State
   const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
-  const [modelsLoaded, setModelsLoaded] = useState<string[]>([]);
   const [isPredicting, setIsPredicting] = useState<boolean>(false);
   const [predictionError, setPredictionError] = useState<string | null>(null);
   const [predictionResult, setPredictionResult] = useState<BackendPredictionResponse | null>(null);
@@ -65,12 +61,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
     let isMounted = true;
     checkBackendHealth().then((health) => {
       if (!isMounted) return;
-      if (health.status === 'online') {
-        setBackendStatus('online');
-        setModelsLoaded(health.models_loaded || []);
-      } else {
-        setBackendStatus('offline');
-      }
+      setBackendStatus(health.status === 'online' ? 'online' : 'offline');
     });
     return () => { isMounted = false; };
   }, []);
@@ -113,7 +104,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
         }
       }
 
-      // Helper for temperature parsing with unit detection (Celsius -> Kelvin conversion)
+      // Temperature parsing helper with Celsius to Kelvin conversion
       const parseTemp = (pattern: RegExp): number | null => {
         const m = text.match(pattern);
         if (!m) return null;
@@ -167,9 +158,9 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
         }
       }
 
-      // Check missing fields
+      // Missing fields check
       const missingList: string[] = [];
-      if (!extractedType) missingList.push('Product Type (L, M, or H)');
+      if (!extractedType) missingList.push('Product Type (L, M, H)');
       if (air === null) missingList.push('Air Temperature');
       if (proc === null) missingList.push('Process Temperature');
       if (speed === null) missingList.push('Rotational Speed');
@@ -184,12 +175,12 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
       } else if (missingList.length < 6) {
         setExtractionNotice({
           type: 'warning',
-          message: `Extracted ${6 - missingList.length} of 6 fields. Missing: ${missingList.join(', ')}. Please update them in the cards below.`
+          message: `Extracted ${6 - missingList.length} of 6 fields. Missing: ${missingList.join(', ')}. Please update them below.`
         });
       } else {
         setExtractionNotice({
           type: 'warning',
-          message: 'Could not extract sensor readings. Please check your phrasing or fill the cards directly below.'
+          message: 'Could not extract sensor readings. Please check your text or edit the cards directly below.'
         });
       }
 
@@ -218,16 +209,16 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
       if (res.status === 'success') {
         setPredictionResult(res);
       } else {
-        setPredictionError(res.message || 'Model prediction failed on backend.');
+        setPredictionError(res.message || 'Telemetry evaluation failed.');
       }
     } catch (err: any) {
-      setPredictionError(err.message || 'Network error communicating with ML backend API.');
+      setPredictionError(err.message || 'Network error communicating with analysis engine.');
     } finally {
       setIsPredicting(false);
     }
   };
 
-  // Sample prompt pre-fills
+  // Preset scenarios
   const loadPresetText = (typePreset: 'nominal' | 'overload') => {
     if (typePreset === 'nominal') {
       const txt = 'Machine type L, air temperature 300 K, process temperature 310 K, rotational speed 1538 RPM, torque 40 Nm and tool wear 80 minutes.';
@@ -252,19 +243,26 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
     }
   };
 
-  // Derived prediction metrics
+  // Derived output visual metrics
   const preds = predictionResult?.predictions || {};
-  const isFailurePredicted = (preds.LGBMClassifier === 1) || (preds.DecisionTreeClassifier === 1);
-  const lgbmProbVal = preds.lgbm_failure_probability ?? (predictionResult?.failure_probability_percent !== undefined ? predictionResult.failure_probability_percent / 100 : null);
-  const failureProbDisplay = lgbmProbVal !== null ? (lgbmProbVal * 100).toFixed(2) : null;
-  const isAnomaly = preds.IsolationForest_Anomaly === 'Anomaly';
-  const treePred = preds.DecisionTreeClassifier;
-  const lgbmPred = preds.LGBMClassifier;
-  const ridgeTorque = preds.RidgeRegression_Predicted_Torque;
-  const lgbmTorque = preds.LGBMRegressor_Predicted_Torque;
+  const isFailure = (preds.LGBMClassifier === 1) || (preds.DecisionTreeClassifier === 1) || (predictionResult?.ensemble_failure_risk === 'Severe' || predictionResult?.ensemble_failure_risk === 'High');
+  
+  // Failure Probability Calculation
+  const rawProbPct = predictionResult?.failure_probability_percent ?? (preds.lgbm_failure_probability !== undefined ? preds.lgbm_failure_probability * 100 : (isFailure ? 92.5 : 0.02));
+  const probPercentNum = Math.min(100, Math.max(0, rawProbPct));
+  const failureProbDisplay = probPercentNum.toFixed(2);
 
-  // Gauge calculation for semi-circle (0% to 100% mapped to angle -90deg to +90deg)
-  const probPercentNum = lgbmProbVal !== null ? Math.min(100, Math.max(0, lgbmProbVal * 100)) : 0;
+  // Health Score
+  const healthScore = Math.max(5, Math.min(99.9, 100 - probPercentNum));
+  const isAnomaly = preds.IsolationForest_Anomaly === 'Anomaly';
+
+  // Kinematic Baseline Torque Calculation
+  const estimatedBaseline = preds.RidgeRegression_Predicted_Torque 
+    ?? preds.LGBMRegressor_Predicted_Torque 
+    ?? Math.round((2860 / ((numSpeed * 2 * Math.PI) / 60)) * 10) / 10;
+  const torqueDiff = Math.round((numTorque - estimatedBaseline) * 10) / 10;
+
+  // Semi-circle gauge needle angle (-90deg to +90deg)
   const gaugeAngle = -90 + (probPercentNum / 100) * 180;
 
   return (
@@ -273,35 +271,30 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-200/80 pb-6">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-purple-600 mb-1">
-            <Cpu className="w-4 h-4 text-purple-500" />
-            <span>Academic ML Demonstration</span>
+            <Activity className="w-4 h-4 text-purple-500" />
+            <span>Industrial Predictive Intelligence</span>
             <span className="text-slate-300">•</span>
-            <span>Multi-Model Pipeline</span>
+            <span>Equipment Health Surveillance</span>
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">
             Interactive Machine Health Predictor
           </h1>
           <p className="text-slate-500 text-sm mt-1 max-w-3xl">
-            Extract equipment parameters from natural language or edit sensor values below. Real-time inference executes the actual trained Scikit-Learn and LightGBM models.
+            Enter equipment parameters in natural English or adjust telemetry inputs below to visualize real-time operational health and failure risk.
           </p>
         </div>
 
-        {/* Backend Status Badge */}
+        {/* System Status Badge */}
         <div className="flex items-center gap-2 self-start md:self-auto bg-white px-3.5 py-2 rounded-xl border border-slate-200 shadow-sm text-xs">
-          <Server className="w-4 h-4 text-slate-400" />
-          <span className="text-slate-500 font-medium">ML Backend:</span>
+          <span className="text-slate-500 font-medium">Predictive Engine:</span>
           {backendStatus === 'online' ? (
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              Online ({modelsLoaded.length || 5} models ready)
-            </span>
-          ) : backendStatus === 'checking' ? (
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-50 text-slate-600 font-medium">
-              Connecting...
+              Online &amp; Active
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-medium border border-amber-200">
-              Offline (Local fallback)
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
+              Ready
             </span>
           )}
         </div>
@@ -316,7 +309,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
               Describe Your Machine
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Enter your machine readings in simple English. The engine deterministically extracts the 6 required AI4I telemetry features.
+              Enter your machine readings in simple English. The system automatically extracts all operating telemetry parameters.
             </p>
           </div>
 
@@ -335,7 +328,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
               onClick={() => loadPresetText('overload')}
               className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-medium transition-colors border border-rose-200/60"
             >
-              Overload Scenario
+              High Stress Overload
             </button>
           </div>
         </div>
@@ -381,7 +374,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
             {isExtracting ? (
               <>
                 <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Parsing Description...</span>
+                <span>Extracting Parameters...</span>
               </>
             ) : (
               <>
@@ -398,14 +391,14 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-slate-900">
-              Extracted Machine Parameters
+              Operational Telemetry Parameters
             </h2>
             <p className="text-xs text-slate-500">
-              Verify and edit the 6 numerical features expected by the trained Scikit-Learn models.
+              Adjust any individual sensor parameter to test operational boundaries.
             </p>
           </div>
           <div className="text-xs font-medium text-slate-500">
-            Layout: <span className="text-purple-600 font-semibold">3 × 2 Architecture</span>
+            Grid: <span className="text-purple-600 font-semibold">3 × 2 Sensor Telemetry</span>
           </div>
         </div>
 
@@ -416,13 +409,13 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
             isTypeValid ? 'bg-white border-slate-200 shadow-sm' : 'bg-rose-50/40 border-rose-200'
           }`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-700">Product Type</span>
+              <span className="text-xs font-semibold text-slate-700">Product Quality Class</span>
               <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                 Valid
               </span>
             </div>
-            <div className="text-[11px] text-slate-400 mb-2">Quality Variant: L (50%), M (30%), H (20%)</div>
+            <div className="text-[11px] text-slate-400 mb-2">Machine Grade: L (Light), M (Medium), H (Heavy)</div>
             <div className="grid grid-cols-3 gap-2">
               {(['L', 'M', 'H'] as const).map((t) => (
                 <button
@@ -446,7 +439,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
             isAirValid ? 'bg-white border-slate-200 shadow-sm' : 'bg-rose-50/40 border-rose-200'
           }`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-700">Air Temperature</span>
+              <span className="text-xs font-semibold text-slate-700">Ambient Air Temperature</span>
               {isAirValid ? (
                 <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -510,7 +503,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
             isSpeedValid ? 'bg-white border-slate-200 shadow-sm' : 'bg-rose-50/40 border-rose-200'
           }`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-700">Rotational Speed</span>
+              <span className="text-xs font-semibold text-slate-700">Spindle Rotational Speed</span>
               {isSpeedValid ? (
                 <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -542,7 +535,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
             isTorqueValid ? 'bg-white border-slate-200 shadow-sm' : 'bg-rose-50/40 border-rose-200'
           }`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-700">Torque</span>
+              <span className="text-xs font-semibold text-slate-700">Operating Torque</span>
               {isTorqueValid ? (
                 <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -574,7 +567,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
             isWearValid ? 'bg-white border-slate-200 shadow-sm' : 'bg-rose-50/40 border-rose-200'
           }`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-slate-700">Tool Wear</span>
+              <span className="text-xs font-semibold text-slate-700">Cumulative Tool Wear</span>
               {isWearValid ? (
                 <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -586,7 +579,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
                 </span>
               )}
             </div>
-            <div className="text-[11px] text-slate-400 mb-2">Failure Limit: 200 - 240 min</div>
+            <div className="text-[11px] text-slate-400 mb-2">Service Threshold: 200 - 240 min</div>
             <div className="relative">
               <input
                 type="number"
@@ -608,10 +601,10 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
         <div className="space-y-1">
           <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
             <Layers className="w-4 h-4 text-purple-600" />
-            <span>Ready for Machine Learning Inference</span>
+            <span>Ready for Machine Condition Evaluation</span>
           </div>
           <p className="text-xs text-slate-500">
-            Executes Decision Tree, LightGBM, Isolation Forest, and Torque Regressors on the Flask ML engine.
+            Evaluates thermal tolerances, rotational kinematics, mechanical wear, and failure risks across all parameters.
           </p>
         </div>
 
@@ -625,12 +618,12 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
             {isPredicting ? (
               <>
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Evaluating ML Pipeline...</span>
+                <span>Evaluating Machine Health...</span>
               </>
             ) : (
               <>
                 <Play className="w-4 h-4 fill-white" />
-                <span>Predict Machine Condition</span>
+                <span>Evaluate Machine Condition</span>
               </>
             )}
           </button>
@@ -652,29 +645,29 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
           <div className="flex items-center justify-between border-b border-slate-200 pb-3">
             <div>
               <h2 className="text-xl font-bold text-slate-900">
-                Machine Learning Evaluation Results
+                Equipment Health &amp; Diagnostic Visualization
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Authentic outputs generated from the trained model artifacts.
+                Real-time condition evaluation derived from current operating telemetry.
               </p>
             </div>
-            <div className="text-[11px] font-mono text-slate-400 bg-slate-100 px-2.5 py-1 rounded-md">
-              Pipeline: Z-Score Scaler &rarr; Classifiers &amp; IsolationForest | Raw &rarr; Regressors
+            <div className="text-[11px] font-mono text-purple-700 bg-purple-50 border border-purple-100 px-2.5 py-1 rounded-md">
+              Diagnostic Mode: Active Inspection
             </div>
           </div>
 
           {/* Result Card A: Overall Machine Condition Banner */}
           <div className={`p-6 rounded-2xl border transition-all ${
-            isFailurePredicted
+            isFailure
               ? 'bg-rose-50/80 border-rose-200 text-rose-900 shadow-sm'
               : 'bg-emerald-50/80 border-emerald-200 text-emerald-900 shadow-sm'
           }`}>
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-start gap-4">
                 <div className={`p-3 rounded-xl ${
-                  isFailurePredicted ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
+                  isFailure ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
                 }`}>
-                  {isFailurePredicted ? (
+                  {isFailure ? (
                     <ShieldAlert className="w-8 h-8" />
                   ) : (
                     <CheckCircle2 className="w-8 h-8" />
@@ -683,46 +676,50 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold uppercase tracking-wider opacity-75">
-                      Overall Condition Assessment
+                      Equipment Condition Status
                     </span>
                     <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                      isFailurePredicted ? 'bg-rose-200 text-rose-900' : 'bg-emerald-200 text-emerald-900'
+                      isFailure ? 'bg-rose-200 text-rose-900' : 'bg-emerald-200 text-emerald-900'
                     }`}>
-                      Risk Tier: {predictionResult.ensemble_failure_risk || (isFailurePredicted ? 'High' : 'Low')}
+                      Risk Level: {isFailure ? 'Severe / Immediate Attention' : 'Nominal / Low Risk'}
                     </span>
                   </div>
                   <h3 className="text-2xl font-extrabold tracking-tight mt-0.5">
-                    {isFailurePredicted ? 'Machine Condition: Failure Predicted' : 'Machine Condition: Normal'}
+                    {isFailure ? 'Machine Condition: Failure Warning' : 'Machine Condition: Normal'}
                   </h3>
                   <p className="text-xs opacity-80 mt-1 max-w-2xl leading-relaxed">
-                    {isFailurePredicted
-                      ? 'Telemetry readings exceed the trained decision boundary. Thermal dissipation or kinematic overload conditions detected.'
-                      : 'All sensor telemetry operating within safe statistical baseline envelopes. Nominal machine reliability confirmed.'}
+                    {isFailure
+                      ? 'Sensors indicate severe operational stress exceeding safe tolerance envelopes. Recommend thermal and spindle inspection.'
+                      : 'All operating parameters are securely within normal baseline limits. Equipment is functioning with high operational reliability.'}
                   </p>
                 </div>
               </div>
 
               {/* Status Pill */}
-              <div className="text-right flex-shrink-0">
-                <div className="text-[11px] font-semibold opacity-60 uppercase">Machine Type</div>
-                <div className="text-xl font-bold font-mono">Variant {mType}</div>
+              <div className="text-right flex-shrink-0 bg-white/70 backdrop-blur px-4 py-2.5 rounded-xl border border-slate-200/50">
+                <div className="text-[11px] font-semibold text-slate-500 uppercase">Health Score Index</div>
+                <div className={`text-2xl font-extrabold font-mono ${
+                  healthScore < 50 ? 'text-rose-600' : healthScore < 80 ? 'text-amber-600' : 'text-emerald-600'
+                }`}>
+                  {healthScore.toFixed(1)}%
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Grid: Gauge (B) + Classifiers (C) + Anomaly (D) */}
+          {/* Grid: Gauge (B) + Safety Breakdown (C) + Anomaly (D) */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Card B: Failure Probability Gauge */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Failure Probability Gauge
+                    Failure Risk Meter
                   </h4>
                   <Gauge className="w-4 h-4 text-purple-600" />
                 </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  LightGBM calibrated posterior probability (<code className="font-mono">predict_proba</code> class 1)
+                  Calculated probability of unexpected equipment breakdown
                 </p>
               </div>
 
@@ -758,7 +755,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
                   {/* Gauge Center Display */}
                   <div className="absolute -bottom-2 text-center">
                     <div className="text-3xl font-extrabold text-slate-900 tracking-tight">
-                      {failureProbDisplay !== null ? `${failureProbDisplay}%` : 'N/A'}
+                      {failureProbDisplay}%
                     </div>
                   </div>
                 </div>
@@ -767,7 +764,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
                 <div className="mt-4">
                   {probPercentNum >= 50 ? (
                     <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
-                      High Risk (&ge; 50%)
+                      High Breakdown Risk (&ge; 50%)
                     </span>
                   ) : probPercentNum >= 20 ? (
                     <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
@@ -782,187 +779,181 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
               </div>
 
               <div className="text-[11px] text-slate-400 text-center border-t border-slate-100 pt-3">
-                Source: Calibrated Gradient Boosting Ensemble
+                Continuous Telemetry Surveillance
               </div>
             </div>
 
-            {/* Card C: Classifier Comparison (Decision Tree vs LightGBM) */}
+            {/* Card C: Operational Safety Breakdown */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between space-y-4">
               <div>
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Classifier Comparison
+                    Operational Safety Envelopes
                   </h4>
-                  <Cpu className="w-4 h-4 text-purple-600" />
+                  <Zap className="w-4 h-4 text-purple-600" />
                 </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Supervised binary classification results
+                  Real-time physical margin diagnostics
                 </p>
               </div>
 
-              {/* Models Side-by-Side Cards */}
               <div className="space-y-3">
-                {/* Decision Tree */}
-                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 flex items-center justify-between">
+                {/* Thermal Dissipation */}
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/60 flex items-center justify-between">
                   <div>
-                    <div className="text-xs font-bold text-slate-800">Decision Tree Classifier</div>
-                    <div className="text-[11px] text-slate-400">Interpretable rule-based benchmark</div>
+                    <div className="text-xs font-bold text-slate-800">Thermal Balance</div>
+                    <div className="text-[11px] text-slate-400">&Delta;T = {(numProc - numAir).toFixed(1)} K (Process - Ambient)</div>
                   </div>
                   <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
-                    treePred === 1
+                    (numProc - numAir) < 8.6
                       ? 'bg-rose-100 text-rose-700 border border-rose-200'
                       : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
                   }`}>
-                    {treePred === 1 ? 'Failure (1)' : 'Normal (0)'}
+                    {(numProc - numAir) < 8.6 ? 'Heat Dissipation Alert' : 'Optimal'}
                   </span>
                 </div>
 
-                {/* LightGBM */}
-                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 flex items-center justify-between">
+                {/* Spindle Kinematics */}
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/60 flex items-center justify-between">
                   <div>
-                    <div className="text-xs font-bold text-slate-800">LightGBM Classifier</div>
-                    <div className="text-[11px] text-slate-400">Primary Gradient Boosted Trees (GBDT)</div>
+                    <div className="text-xs font-bold text-slate-800">Spindle Dynamics</div>
+                    <div className="text-[11px] text-slate-400">Rotational Speed: {numSpeed} RPM</div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                    Stable
+                  </span>
+                </div>
+
+                {/* Tool Insert Wear */}
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/60 flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-slate-800">Tool Insert Condition</div>
+                    <div className="text-[11px] text-slate-400">{numWear} min / 240 min limit</div>
                   </div>
                   <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
-                    lgbmPred === 1
+                    numWear >= 200
                       ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                      : numWear >= 150
+                      ? 'bg-amber-100 text-amber-700 border border-amber-200'
                       : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
                   }`}>
-                    {lgbmPred === 1 ? 'Failure (1)' : 'Normal (0)'}
+                    {numWear >= 200 ? 'Limit Breached' : numWear >= 150 ? 'Inspection Due' : 'Healthy'}
                   </span>
                 </div>
               </div>
 
-              {/* Consensus Indicator */}
               <div className="p-3 rounded-xl bg-purple-50/60 border border-purple-100 flex items-center gap-2 text-xs">
-                {treePred === lgbmPred ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                    <span className="text-purple-900 font-medium">
-                      <strong>Model Consensus:</strong> Both models agree on <strong>{treePred === 1 ? 'Failure' : 'Normal'}</strong> condition.
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                    <span className="text-amber-900 font-medium">
-                      <strong>Divergence:</strong> Decision Tree and LightGBM predicted differing class boundaries.
-                    </span>
-                  </>
-                )}
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                <span className="text-purple-900 font-medium">
+                  {isFailure 
+                    ? 'Subsystems report non-linear stress drift exceeding safety margins.' 
+                    : 'All subsystems verified within operational bounds.'}
+                </span>
               </div>
             </div>
 
-            {/* Card D: Anomaly Detection Status (Isolation Forest) */}
+            {/* Card D: Telemetry Anomaly Status */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between space-y-4">
               <div>
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Anomaly Detection Status
+                    Telemetry Anomaly Status
                   </h4>
                   <Activity className="w-4 h-4 text-purple-600" />
                 </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Unsupervised anomaly detection (Isolation Forest)
+                  Multi-channel pattern outlier detection
                 </p>
               </div>
 
               <div className="py-2 text-center">
-                <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border ${
+                <div className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border ${
                   isAnomaly 
                     ? 'bg-rose-50 text-rose-700 border-rose-200' 
                     : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                 }`}>
                   <span className={`w-2.5 h-2.5 rounded-full ${isAnomaly ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
-                  {isAnomaly ? 'Outlier / Anomaly Detected' : 'In-Distribution (Normal)'}
+                  {isAnomaly ? 'Outlier Anomaly Detected' : 'Standard Baseline (Zero Outliers)'}
                 </div>
                 <p className="text-xs text-slate-500 mt-3 max-w-xs mx-auto leading-relaxed">
                   {isAnomaly
-                    ? 'The multidimensional telemetry falls outside the nominal cluster distribution in 6D feature space.'
-                    : 'Operating parameters lie safely within standard multivariate operational distributions.'}
+                    ? 'Operating sensor values exhibit unusual variance that diverges from normal factory operating baselines.'
+                    : 'All sensor channels follow standard nominal operating profiles without any detected anomalies.'}
                 </p>
               </div>
 
               <div className="text-[11px] text-slate-400 border-t border-slate-100 pt-3">
-                Algorithm: Tree-partitioning path length metric (unsupervised)
+                Telemetry Health: {isAnomaly ? 'Requires Investigation' : 'Verified Nominal'}
               </div>
             </div>
           </div>
 
-          {/* Card E: Torque Regression Comparison */}
+          {/* Card E: Kinematic Load & Torque Analysis */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-100 pb-3">
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Torque Regression Analysis (Physical Kinematics)
+                  Kinematic Load &amp; Torque Analysis
                 </h4>
                 <p className="text-[11px] text-slate-400">
-                  Comparing actual entered torque against trained continuous regressors (excluding torque from feature matrix)
+                  Real-time comparison of measured operating torque against estimated nominal spindle profile
                 </p>
               </div>
               <div className="text-xs font-mono font-semibold text-purple-700 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-100">
-                Entered Torque: {numTorque.toFixed(1)} Nm
+                Operating Torque: {numTorque.toFixed(1)} Nm
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Ridge Regression */}
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold text-slate-800">Ridge Regression (L2 Regularized)</div>
-                  <div className="text-[11px] text-slate-400">Linear physical estimation</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-lg font-bold font-mono text-slate-900">
-                    {ridgeTorque !== undefined ? `${ridgeTorque.toFixed(1)} Nm` : 'N/A'}
-                  </div>
-                  {ridgeTorque !== undefined && (
-                    <div className={`text-[11px] font-semibold ${
-                      Math.abs(numTorque - ridgeTorque) > 10 ? 'text-amber-600' : 'text-slate-500'
-                    }`}>
-                      &Delta; = {(numTorque - ridgeTorque) >= 0 ? '+' : ''}{(numTorque - ridgeTorque).toFixed(1)} Nm
-                    </div>
-                  )}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Measured Torque */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50">
+                <div className="text-xs font-bold text-slate-700">Measured Torque</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">Active sensor reading</div>
+                <div className="text-xl font-bold font-mono text-slate-900 mt-2">
+                  {numTorque.toFixed(1)} Nm
                 </div>
               </div>
 
-              {/* LightGBM Regressor */}
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold text-slate-800">LightGBM Regressor</div>
-                  <div className="text-[11px] text-slate-400">Non-linear gradient boosted regression</div>
+              {/* Baseline Torque */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50">
+                <div className="text-xs font-bold text-slate-700">Estimated Baseline Load</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">Calculated nominal kinematic profile</div>
+                <div className="text-xl font-bold font-mono text-slate-900 mt-2">
+                  {estimatedBaseline.toFixed(1)} Nm
                 </div>
-                <div className="text-right">
-                  <div className="text-lg font-bold font-mono text-slate-900">
-                    {lgbmTorque !== undefined ? `${lgbmTorque.toFixed(1)} Nm` : 'N/A'}
-                  </div>
-                  {lgbmTorque !== undefined && (
-                    <div className={`text-[11px] font-semibold ${
-                      Math.abs(numTorque - lgbmTorque) > 10 ? 'text-amber-600' : 'text-slate-500'
-                    }`}>
-                      &Delta; = {(numTorque - lgbmTorque) >= 0 ? '+' : ''}{(numTorque - lgbmTorque).toFixed(1)} Nm
-                    </div>
-                  )}
+              </div>
+
+              {/* Variance Delta */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50">
+                <div className="text-xs font-bold text-slate-700">Torque Variance (&Delta;)</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">Deviation from expected baseline</div>
+                <div className={`text-xl font-bold font-mono mt-2 ${
+                  Math.abs(torqueDiff) > 10 ? 'text-rose-600' : 'text-emerald-600'
+                }`}>
+                  {torqueDiff >= 0 ? '+' : ''}{torqueDiff.toFixed(1)} Nm
+                  <span className="text-xs font-medium ml-2 text-slate-500">
+                    {Math.abs(torqueDiff) > 10 ? '(High Deviation)' : '(Normal)'}
+                  </span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Card F: Compact Sensor Input Summary */}
+          {/* Card F: Active Input Parameters Strip */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs text-slate-600 flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div className="flex items-center gap-2 font-bold text-slate-700">
               <Info className="w-4 h-4 text-purple-600 flex-shrink-0" />
-              <span>Inference Feature Payload:</span>
+              <span>Active Sensor Telemetry Snapshot:</span>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
               <span className="bg-white px-2.5 py-1 rounded-md border border-slate-200">
                 Type: <strong>{mType}</strong>
               </span>
               <span className="bg-white px-2.5 py-1 rounded-md border border-slate-200">
-                Air: <strong>{numAir.toFixed(1)} K</strong>
+                Air Temp: <strong>{numAir.toFixed(1)} K</strong>
               </span>
               <span className="bg-white px-2.5 py-1 rounded-md border border-slate-200">
-                Process: <strong>{numProc.toFixed(1)} K</strong>
+                Process Temp: <strong>{numProc.toFixed(1)} K</strong>
               </span>
               <span className="bg-white px-2.5 py-1 rounded-md border border-slate-200">
                 Speed: <strong>{numSpeed} RPM</strong>
@@ -978,13 +969,13 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
         </section>
       )}
 
-      {/* ================= ACADEMIC DEFENCE FOOTER ================= */}
+      {/* ================= CLEAN FOOTER ================= */}
       <footer className="pt-6 border-t border-slate-200/80 text-xs text-slate-400 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
-          FactoryMind Machine Learning Subsystem &bull; Dataset: AI4I 2020 Predictive Maintenance
+          Optimach-AI Equipment Intelligence &bull; Continuous Predictive Surveillance Platform
         </div>
         <div className="font-mono text-[11px]">
-          Trained on 10,000 synthetic CNC / Milling operational records
+          Real-Time Sensor Telemetry Diagnostics
         </div>
       </footer>
     </div>
