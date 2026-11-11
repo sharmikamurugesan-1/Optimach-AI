@@ -133,7 +133,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
         setPredictionResult(res);
         setLastEvaluatedInputs(payload);
       } else {
-        setPredictionError(res.message || 'Model prediction returned an error.');
+        setPredictionError(res.message || 'Equipment evaluation service returned an error.');
       }
     } catch (err: any) {
       setPredictionError(err.message || 'Network error communicating with ML backend API.');
@@ -526,8 +526,8 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
       {isPredicting ? (
         <div className="bg-white p-12 rounded-2xl border border-purple-100 shadow-sm flex flex-col items-center justify-center text-center space-y-3">
           <div className="w-10 h-10 border-4 border-purple-200 border-t-[#6D28D9] rounded-full animate-spin"></div>
-          <div className="text-sm font-bold text-slate-900">Evaluating Telemetry with Machine Learning Pipeline...</div>
-          <p className="text-xs text-slate-500">Querying trained DecisionTree, LightGBM, IsolationForest, and Regressors</p>
+          <div className="text-sm font-bold text-slate-900">Evaluating Equipment Telemetry...</div>
+          <p className="text-xs text-slate-500">Assessing operating parameters and calculating safety margins</p>
         </div>
       ) : predictionResult ? (
         <div className="space-y-6">
@@ -648,26 +648,26 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
             </div>
           </div>
 
-          {/* Middle Row: Model Prediction Comparison & Torque Prediction Comparison */}
+          {/* Middle Row: Operational Safety Status & Torque Load Profile */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Card 3: ML Model Prediction Comparison */}
+            {/* Card 3: Operational Safety Status */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
               <div>
                 <div className="flex items-center gap-2 text-slate-800">
                   <BarChart3 className="w-5 h-5 text-purple-600" />
-                  <h2 className="text-base font-bold text-slate-900">ML Model Prediction Comparison</h2>
+                  <h2 className="text-base font-bold text-slate-900">Operational Safety Status</h2>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Results from different machine learning models
+                  Dual-channel subsystem condition assessment
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4 mt-6">
-                {/* Decision Tree */}
+                {/* Channel 1 */}
                 <div className="space-y-2.5">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
                     <GitBranch className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Decision Tree Classifier</span>
+                    <span>Thermal &amp; Power Check</span>
                   </div>
                   <div className={`p-4 rounded-xl text-center border font-bold text-sm flex items-center justify-center gap-2 ${
                     treePred === 1
@@ -688,11 +688,11 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
                   </div>
                 </div>
 
-                {/* LightGBM */}
+                {/* Channel 2 */}
                 <div className="space-y-2.5">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
                     <Leaf className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>LightGBM Classifier</span>
+                    <span>Mechanical &amp; Wear Check</span>
                   </div>
                   <div className={`p-4 rounded-xl text-center border font-bold text-sm flex items-center justify-center gap-2 ${
                     lgbmPred === 1
@@ -715,22 +715,22 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
               </div>
             </div>
 
-            {/* Card 4: Torque Prediction Comparison */}
+            {/* Card 4: Torque & Load Profile */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
               <div>
                 <div className="flex items-center gap-2 text-slate-800">
                   <Wrench className="w-5 h-5 text-purple-600" />
-                  <h2 className="text-base font-bold text-slate-900">Torque Prediction Comparison</h2>
+                  <h2 className="text-base font-bold text-slate-900">Operating Torque &amp; Load Profile</h2>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Measured vs Predicted Torque
+                  Measured load vs expected baseline parameters
                 </p>
               </div>
 
               <div className="space-y-3.5 mt-5">
                 {/* Measured Input Bar */}
                 <div className="flex items-center gap-3 text-xs">
-                  <span className="w-28 text-slate-600 font-medium text-right flex-shrink-0">Measured Input</span>
+                  <span className="w-36 text-slate-600 font-medium text-right flex-shrink-0">Active Operating Load</span>
                   <div className="flex-1 bg-slate-100 rounded-lg h-5 overflow-hidden relative">
                     <div 
                       className="h-full bg-[#6D28D9] rounded-lg transition-all duration-700" 
@@ -740,9 +740,9 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
                   <span className="w-16 font-bold font-mono text-slate-900 text-right">{evalTorque.toFixed(1)} Nm</span>
                 </div>
 
-                {/* Ridge Regression Bar */}
+                {/* Ridge Regression Bar -> Expected Standard Baseline */}
                 <div className="flex items-center gap-3 text-xs">
-                  <span className="w-28 text-slate-600 font-medium text-right flex-shrink-0">Ridge Regression</span>
+                  <span className="w-36 text-slate-600 font-medium text-right flex-shrink-0">Expected Standard Load</span>
                   <div className="flex-1 bg-slate-100 rounded-lg h-5 overflow-hidden relative">
                     <div 
                       className="h-full bg-[#C4B5FD] rounded-lg transition-all duration-700" 
@@ -752,9 +752,9 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
                   <span className="w-16 font-bold font-mono text-slate-900 text-right">{ridgeVal.toFixed(1)} Nm</span>
                 </div>
 
-                {/* LightGBM Regressor Bar */}
+                {/* LightGBM Regressor Bar -> Estimated Safe Limit */}
                 <div className="flex items-center gap-3 text-xs">
-                  <span className="w-28 text-slate-600 font-medium text-right flex-shrink-0">LightGBM Regressor</span>
+                  <span className="w-36 text-slate-600 font-medium text-right flex-shrink-0">Estimated Safe Limit</span>
                   <div className="flex-1 bg-slate-100 rounded-lg h-5 overflow-hidden relative">
                     <div 
                       className="h-full bg-[#312E81] rounded-lg transition-all duration-700" 
@@ -766,7 +766,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
 
                 {/* Dynamic X-Axis Ticks */}
                 <div className="flex items-center gap-3 text-[10px] text-slate-400 font-mono pt-1">
-                  <span className="w-28"></span>
+                  <span className="w-36"></span>
                   <div className="flex-1 flex justify-between px-1">
                     {torqueTicks.map((t, idx) => (
                       <span key={idx}>{t}</span>
