@@ -1,890 +1,992 @@
-import React, { useState } from 'react';
-import { Machine, SensorTelemetry, PredictionResult } from '../types';
-import { predictMachineFailure, calculateHealthScore } from '../services/mlEngine';
-import { queryBackendPrediction } from '../services/backendApi';
+import React, { useState, useEffect } from 'react';
+import { Machine, SensorTelemetry } from '../types';
+import { queryBackendPrediction, checkBackendHealth, BackendPredictionResponse } from '../services/backendApi';
 import { 
-  Sliders, 
+  Sparkles, 
   Play, 
   RotateCcw, 
   CheckCircle2, 
   AlertTriangle, 
   ShieldAlert, 
-  Cpu, 
-  Zap, 
   Gauge, 
   Thermometer, 
+  Cpu, 
   Activity, 
   Wrench, 
   ArrowRight,
-  Sparkles,
-  Info
+  Info,
+  Server,
+  Layers,
+  Check,
+  AlertCircle
 } from 'lucide-react';
 
-type ToleranceStatus = 'normal' | 'warning' | 'critical';
-
-interface DynamicOutputResult {
-  riskTier: 'Low' | 'Moderate' | 'High' | 'Severe';
-  failureProbability: number;
-  healthScore: number;
-  predictedTorque: number;
-  isAnomaly: boolean;
-  models: {
-    lgbm: { pred: number; label: string; conf: string };
-    xgb: { pred: number; label: string; conf: string };
-    tree: { pred: number; label: string; rule: string };
-    isolationForest: { status: string; isOutlier: boolean };
-    lstm: { prob: number; flag: boolean };
-    lgbmRegressor: { torque: number; diff: number };
-    ridge: { torque: number };
-  };
-  tolerances: {
-    temperature: ToleranceStatus;
-    vibration: ToleranceStatus;
-    pressure: ToleranceStatus;
-    speed: ToleranceStatus;
-    torque: ToleranceStatus;
-    wear: ToleranceStatus;
-  };
-  recommendation: string;
-  urgency: string;
-}
-
-interface InteractivePredictorViewProps {
-  machines: Machine[];
-  onApplyManualTelemetry: (machineId: string, telemetry: SensorTelemetry) => void;
+export interface InteractivePredictorViewProps {
+  machines?: Machine[];
+  onApplyManualTelemetry?: (machineId: string, telemetry: SensorTelemetry) => void;
   onNavigateToView?: (view: string) => void;
   onCreateWorkOrder?: (title: string, notes: string) => void;
 }
 
-export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> = ({
-  machines,
-  onApplyManualTelemetry,
-  onNavigateToView,
-  onCreateWorkOrder
-}) => {
-  const [selectedMachineId, setSelectedMachineId] = useState<string>(machines[0]?.id || 'MACH-012');
-  const [machineType, setMachineType] = useState<'L' | 'M' | 'H'>('L');
+// Validation ranges for AI4I 2020 Predictive Maintenance Dataset
+const RANGES = {
+  airTemp: { min: 280, max: 320, unit: 'K', label: 'Air Temperature', nominal: '298 - 304 K' },
+  procTemp: { min: 290, max: 330, unit: 'K', label: 'Process Temperature', nominal: '308 - 314 K' },
+  rotSpeed: { min: 1000, max: 3000, unit: 'RPM', label: 'Rotational Speed', nominal: '1400 - 1800 RPM' },
+  torque: { min: 3, max: 95, unit: 'Nm', label: 'Torque', nominal: '30 - 55 Nm' },
+  toolWear: { min: 0, max: 300, unit: 'min', label: 'Tool Wear', nominal: '0 - 240 min' },
+};
 
-  // Input States (Telemetry & Machine Parameters)
-  const [airTemp, setAirTemp] = useState<number>(300.0); // Kelvin
-  const [procTemp, setProcTemp] = useState<number>(310.0); // Kelvin
-  const [rotSpeed, setRotSpeed] = useState<number>(1538); // RPM
-  const [torque, setTorque] = useState<number>(40.0); // Nm
-  const [toolWear, setToolWear] = useState<number>(108); // min
-  const [vibration, setVibration] = useState<number>(40.4); // mm/s
-  const [pressure, setPressure] = useState<number>(100.9); // PSI
-  const [volt, setVolt] = useState<number>(170.8); // V
-
-  // Output States
-  const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
-  const [appliedSuccess, setAppliedSuccess] = useState<boolean>(false);
-  const [evalResult, setEvalResult] = useState<DynamicOutputResult>(() =>
-    computeDynamicOutput(300.0, 310.0, 1538, 40.0, 108, 40.4, 100.9, 170.8, 'L')
+export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> = () => {
+  // 1. Natural Language State
+  const [nlText, setNlText] = useState<string>(
+    'Machine type L, air temperature 300 K, process temperature 310 K, rotational speed 1538 RPM, torque 40 Nm and tool wear 80 minutes.'
   );
+  const [extractionNotice, setExtractionNotice] = useState<{ type: 'success' | 'warning' | 'info'; message: string } | null>(null);
+  const [isExtracting, setIsExtracting] = useState<boolean>(false);
 
-  function computeDynamicOutput(
-    air: number,
-    proc: number,
-    rpm: number,
-    tq: number,
-    wear: number,
-    vib: number,
-    pres: number,
-    v: number,
-    type: 'L' | 'M' | 'H'
-  ): DynamicOutputResult {
-    // Physical criteria
-    const deltaT = proc - air;
-    const power = (tq * (2 * Math.PI * rpm)) / 60;
-    const isHdf = deltaT < 8.6 && rpm < 1380;
-    const isPwf = power < 3500 || power > 9000;
-    const isTwf = wear >= (type === 'H' ? 240 : type === 'M' ? 220 : 200);
-    const osfLimit = type === 'L' ? 11000 : type === 'M' ? 12000 : 13000;
-    const isOsf = tq * wear > osfLimit;
-    const isVibCritical = vib > 54.0;
+  // 2. Six Sensor Inputs State (strings for seamless editing)
+  const [mType, setMType] = useState<'L' | 'M' | 'H'>('L');
+  const [airTempStr, setAirTempStr] = useState<string>('300.0');
+  const [procTempStr, setProcTempStr] = useState<string>('310.0');
+  const [rotSpeedStr, setRotSpeedStr] = useState<string>('1538');
+  const [torqueStr, setTorqueStr] = useState<string>('40.0');
+  const [toolWearStr, setToolWearStr] = useState<string>('80');
 
-    let votes = 0;
-    if (isHdf) votes += 2;
-    if (isPwf) votes += 2;
-    if (isTwf) votes += 2;
-    if (isOsf) votes += 2;
-    if (isVibCritical) votes += 2;
-    if (pres > 130 || pres < 85) votes += 1;
-    if (proc > 318) votes += 1;
+  // 3. Backend & Prediction State
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [modelsLoaded, setModelsLoaded] = useState<string[]>([]);
+  const [isPredicting, setIsPredicting] = useState<boolean>(false);
+  const [predictionError, setPredictionError] = useState<string | null>(null);
+  const [predictionResult, setPredictionResult] = useState<BackendPredictionResponse | null>(null);
 
-    const prob = Math.min(98, Math.max(4, Math.round((votes / 8) * 100)));
-    let riskTier: 'Low' | 'Moderate' | 'High' | 'Severe' = 'Low';
-    let urgency = 'Routine Surveillance';
-    let recommendation = 'All sensor envelopes within certified factory limits. Maintain scheduled routine lubrication.';
-
-    if (prob >= 75) {
-      riskTier = 'Severe';
-      urgency = 'Immediate Emergency Stop';
-      recommendation = isHdf 
-        ? 'Severe thermal dissipation collapse. Flush coolant manifold and inspect heat exchanger.'
-        : isTwf 
-        ? 'Cutting tool wear limit breached. Immediate cutting insert replacement required.'
-        : isOsf 
-        ? 'High torque overload with worn tool. Reduce feed rate and inspect spindle drive bearings.'
-        : 'Severe harmonic vibration surge. Immediate drive shaft inspection advised.';
-    } else if (prob >= 50) {
-      riskTier = 'High';
-      urgency = 'Mandatory Inspection within 48 Hours';
-      recommendation = 'Non-linear telemetry drift detected across dual sensors. Schedule physical verification.';
-    } else if (prob >= 25) {
-      riskTier = 'Moderate';
-      urgency = 'Schedule Service within 7 Days';
-      recommendation = 'Early sensor drift detected. Verify baseline fluid pressure and spindle bearing harmonics.';
-    }
-
-    const health = Math.max(10, Math.min(99, Math.round(100 - prob * 0.95)));
-    const predTorque = Math.round((2860 / ((rpm * 2 * Math.PI) / 60)) * 10) / 10;
-    const torqueDiff = Math.round((tq - predTorque) * 10) / 10;
-
-    return {
-      riskTier,
-      failureProbability: prob,
-      healthScore: health,
-      predictedTorque: predTorque,
-      isAnomaly: votes >= 2,
-      models: {
-        lgbm: { pred: prob >= 50 ? 1 : 0, label: prob >= 50 ? 'Failure Predicted' : 'Nominal Operation', conf: `${Math.min(99, prob + 4)}%` },
-        xgb: { pred: prob >= 50 ? 1 : 0, label: prob >= 50 ? 'Failure Predicted' : 'Nominal Operation', conf: `${Math.min(98, prob + 2)}%` },
-        tree: { pred: prob >= 50 ? 1 : 0, label: prob >= 50 ? 'High Risk' : 'Normal', rule: isTwf ? 'ToolWear >= 200' : isHdf ? 'DeltaT < 8.6K' : 'Baseline Verified' },
-        isolationForest: { status: votes >= 2 ? 'Out-of-Distribution Outlier' : 'In-Distribution Normal', isOutlier: votes >= 2 },
-        lstm: { prob: Math.round((prob / 100) * 1000) / 1000, flag: prob >= 50 },
-        lgbmRegressor: { torque: predTorque, diff: torqueDiff },
-        ridge: { torque: Math.round((predTorque * 0.98) * 10) / 10 }
-      },
-      tolerances: {
-        temperature: proc > 318 ? 'critical' : proc > 313 ? 'warning' : 'normal',
-        vibration: vib > 54 ? 'critical' : vib > 48 ? 'warning' : 'normal',
-        pressure: pres > 130 || pres < 85 ? 'critical' : pres > 115 ? 'warning' : 'normal',
-        speed: rpm < 1350 || rpm > 2200 ? 'warning' : 'normal',
-        torque: tq > 60 ? 'critical' : tq > 50 ? 'warning' : 'normal',
-        wear: wear > 210 ? 'critical' : wear > 180 ? 'warning' : 'normal',
-      },
-      recommendation,
-      urgency
-    };
-  }
-
-  // Preset Scenario Handlers
-  const handleLoadScenario = (scenario: 'nominal' | 'hdf' | 'twf' | 'pwf' | 'osf' | 'bearing') => {
-    if (scenario === 'nominal') {
-      setAirTemp(300.0);
-      setProcTemp(310.0);
-      setRotSpeed(1538);
-      setTorque(40.0);
-      setToolWear(85);
-      setVibration(39.5);
-      setPressure(101.2);
-      setVolt(171.0);
-      setMachineType('L');
-    } else if (scenario === 'hdf') {
-      setAirTemp(302.5);
-      setProcTemp(308.2); // Delta T = 5.7K < 8.6K
-      setRotSpeed(1310);
-      setTorque(48.5);
-      setToolWear(110);
-      setVibration(44.8);
-      setPressure(106.0);
-      setVolt(170.0);
-      setMachineType('L');
-    } else if (scenario === 'twf') {
-      setAirTemp(301.0);
-      setProcTemp(316.5);
-      setRotSpeed(1450);
-      setTorque(54.0);
-      setToolWear(232); // Exceeded 200 min
-      setVibration(62.4);
-      setPressure(118.0);
-      setVolt(172.5);
-      setMachineType('L');
-    } else if (scenario === 'pwf') {
-      setAirTemp(300.0);
-      setProcTemp(312.0);
-      setRotSpeed(2650);
-      setTorque(68.0); // Power = ~18.8 kW > 9 kW
-      setToolWear(140);
-      setVibration(55.2);
-      setPressure(122.0);
-      setVolt(195.0);
-      setMachineType('M');
-    } else if (scenario === 'osf') {
-      setAirTemp(301.2);
-      setProcTemp(314.0);
-      setRotSpeed(1380);
-      setTorque(72.5);
-      setToolWear(198); // Torque * wear = 14,355 > 11,000
-      setVibration(58.9);
-      setPressure(128.0);
-      setVolt(170.0);
-      setMachineType('L');
-    } else if (scenario === 'bearing') {
-      setAirTemp(300.5);
-      setProcTemp(319.8);
-      setRotSpeed(1280);
-      setTorque(62.0);
-      setToolWear(175);
-      setVibration(67.8); // High harmonic
-      setPressure(138.5);
-      setVolt(175.0);
-      setMachineType('H');
-    }
-
-    setAppliedSuccess(false);
-  };
-
-  // Re-run Prediction
-  const handleExecutePrediction = async () => {
-    setIsEvaluating(true);
-    setAppliedSuccess(false);
-
-    // Run dynamic output
-    const out = computeDynamicOutput(airTemp, procTemp, rotSpeed, torque, toolWear, vibration, pressure, volt, machineType);
-    setEvalResult(out);
-
-    // Seamlessly query Flask API if available
-    try {
-      const res = await queryBackendPrediction({
-        Type: machineType,
-        Air_temperature: airTemp,
-        Process_temperature: procTemp,
-        Rotational_speed: rotSpeed,
-        Torque: torque,
-        Tool_wear: toolWear
-      });
-      if (res && res.status === 'success') {
-        // Enriched with live Flask ML predictions
-        console.log('[INTERACTIVE PREDICTOR] Flask ML Response:', res);
+  // Check backend health on mount
+  useEffect(() => {
+    let isMounted = true;
+    checkBackendHealth().then((health) => {
+      if (!isMounted) return;
+      if (health.status === 'online') {
+        setBackendStatus('online');
+        setModelsLoaded(health.models_loaded || []);
+      } else {
+        setBackendStatus('offline');
       }
-    } catch {
-      // Local fallback active
-    }
+    });
+    return () => { isMounted = false; };
+  }, []);
+
+  // Validation helpers
+  const numAir = parseFloat(airTempStr);
+  const numProc = parseFloat(procTempStr);
+  const numSpeed = parseFloat(rotSpeedStr);
+  const numTorque = parseFloat(torqueStr);
+  const numWear = parseFloat(toolWearStr);
+
+  const isAirValid = !isNaN(numAir) && numAir >= RANGES.airTemp.min && numAir <= RANGES.airTemp.max;
+  const isProcValid = !isNaN(numProc) && numProc >= RANGES.procTemp.min && numProc <= RANGES.procTemp.max;
+  const isSpeedValid = !isNaN(numSpeed) && numSpeed >= RANGES.rotSpeed.min && numSpeed <= RANGES.rotSpeed.max;
+  const isTorqueValid = !isNaN(numTorque) && numTorque >= RANGES.torque.min && numTorque <= RANGES.torque.max;
+  const isWearValid = !isNaN(numWear) && numWear >= RANGES.toolWear.min && numWear <= RANGES.toolWear.max;
+  const isTypeValid = ['L', 'M', 'H'].includes(mType);
+
+  const allFieldsValid = isAirValid && isProcValid && isSpeedValid && isTorqueValid && isWearValid && isTypeValid;
+
+  // 4. Deterministic Natural Language Parser
+  const handleExtractValues = () => {
+    setIsExtracting(true);
+    setExtractionNotice(null);
 
     setTimeout(() => {
-      setIsEvaluating(false);
-    }, 250);
+      const text = nlText;
+
+      // Type parser: 'L', 'M', 'H'
+      const typeMatch = text.match(/(?:machine|product)?\s*type\s*[:=]?\s*([HLMhlm])\b/i) ||
+                        text.match(/\btype\s*[:=]?\s*([HLMhlm])\b/i) ||
+                        text.match(/\b([HLMhlm])\s*(?:type|-type)\b/i);
+
+      let extractedType: 'L' | 'M' | 'H' | null = null;
+      if (typeMatch) {
+        const char = typeMatch[1].toUpperCase();
+        if (char === 'L' || char === 'M' || char === 'H') {
+          extractedType = char as 'L' | 'M' | 'H';
+          setMType(extractedType);
+        }
+      }
+
+      // Helper for temperature parsing with unit detection (Celsius -> Kelvin conversion)
+      const parseTemp = (pattern: RegExp): number | null => {
+        const m = text.match(pattern);
+        if (!m) return null;
+        const val = parseFloat(m[1]);
+        if (isNaN(val)) return null;
+        const unit = (m[2] || '').toLowerCase().trim();
+        if (unit.startsWith('c') || unit === '°c' || unit === 'deg c' || unit === 'degree c') {
+          return Math.round((val + 273.15) * 100) / 100;
+        }
+        return Math.round(val * 100) / 100;
+      };
+
+      // Air Temperature
+      const air = parseTemp(/(?:air\s*(?:temp|temperature)?|ambient\s*temp)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(k|c|°c|deg\s*c|kelvin|celsius)?\b/i);
+      if (air !== null) setAirTempStr(air.toString());
+
+      // Process Temperature
+      const proc = parseTemp(/(?:process\s*(?:temp|temperature)?|proc\s*temp)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(k|c|°c|deg\s*c|kelvin|celsius)?\b/i);
+      if (proc !== null) setProcTempStr(proc.toString());
+
+      // Rotational Speed
+      let speed: number | null = null;
+      const speedMatch = text.match(/(?:rotational\s*speed|rotor\s*speed|speed|rpm)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(?:rpm)?\b/i);
+      if (speedMatch) {
+        const s = parseFloat(speedMatch[1]);
+        if (!isNaN(s)) {
+          speed = Math.round(s);
+          setRotSpeedStr(speed.toString());
+        }
+      }
+
+      // Torque
+      let tq: number | null = null;
+      const torqueMatch = text.match(/torque\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(?:nm|newton\s*meters?)?\b/i);
+      if (torqueMatch) {
+        const t = parseFloat(torqueMatch[1]);
+        if (!isNaN(t)) {
+          tq = Math.round(t * 100) / 100;
+          setTorqueStr(tq.toString());
+        }
+      }
+
+      // Tool Wear
+      let wear: number | null = null;
+      const wearMatch = text.match(/(?:tool\s*wear|toolwear|wear)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(?:min|mins|minutes)?\b/i);
+      if (wearMatch) {
+        const w = parseFloat(wearMatch[1]);
+        if (!isNaN(w)) {
+          wear = Math.round(w);
+          setToolWearStr(wear.toString());
+        }
+      }
+
+      // Check missing fields
+      const missingList: string[] = [];
+      if (!extractedType) missingList.push('Product Type (L, M, or H)');
+      if (air === null) missingList.push('Air Temperature');
+      if (proc === null) missingList.push('Process Temperature');
+      if (speed === null) missingList.push('Rotational Speed');
+      if (tq === null) missingList.push('Torque');
+      if (wear === null) missingList.push('Tool Wear');
+
+      if (missingList.length === 0) {
+        setExtractionNotice({
+          type: 'success',
+          message: 'All 6 parameters extracted successfully from your description.'
+        });
+      } else if (missingList.length < 6) {
+        setExtractionNotice({
+          type: 'warning',
+          message: `Extracted ${6 - missingList.length} of 6 fields. Missing: ${missingList.join(', ')}. Please update them in the cards below.`
+        });
+      } else {
+        setExtractionNotice({
+          type: 'warning',
+          message: 'Could not extract sensor readings. Please check your phrasing or fill the cards directly below.'
+        });
+      }
+
+      setIsExtracting(false);
+    }, 200);
   };
 
-  // Apply to Machine Fleet Dashboard
-  const handleApplyToFleet = () => {
-    const telem: SensorTelemetry = {
-      timestamp: new Date().toTimeString().slice(0, 8),
-      volt,
-      rotate: rotSpeed,
-      pressure,
-      vibration,
-      temperature: Math.round((procTemp - 273.15) * 10) / 10 // Convert to Celsius
+  // 5. Prediction Execution
+  const handlePredict = async () => {
+    if (!allFieldsValid) return;
+
+    setIsPredicting(true);
+    setPredictionError(null);
+
+    const payload = {
+      Type: mType,
+      Air_temperature: numAir,
+      Process_temperature: numProc,
+      Rotational_speed: numSpeed,
+      Torque: numTorque,
+      Tool_wear: numWear
     };
 
-    onApplyManualTelemetry(selectedMachineId, telem);
-    setAppliedSuccess(true);
-    setTimeout(() => setAppliedSuccess(false), 4000);
-  };
-
-  const getRiskStyle = (tier: string) => {
-    switch (tier) {
-      case 'Severe':
-        return {
-          bg: 'bg-[#FCEBED]',
-          border: 'border-[#F6B7C1]',
-          text: 'text-[#DC5268]',
-          badge: 'bg-[#DC5268] text-white',
-          glow: 'shadow-[0_0_20px_rgba(220,82,104,0.2)]'
-        };
-      case 'High':
-        return {
-          bg: 'bg-[#FFF7ED]',
-          border: 'border-[#FED7AA]',
-          text: 'text-[#EA580C]',
-          badge: 'bg-[#EA580C] text-white',
-          glow: 'shadow-[0_0_20px_rgba(234,88,12,0.15)]'
-        };
-      case 'Moderate':
-        return {
-          bg: 'bg-[#FEFCE8]',
-          border: 'border-[#FEF08A]',
-          text: 'text-[#CA8A04]',
-          badge: 'bg-[#CA8A04] text-white',
-          glow: 'shadow-[0_0_20px_rgba(202,138,4,0.15)]'
-        };
-      default:
-        return {
-          bg: 'bg-[#F0FDF4]',
-          border: 'border-[#BBF7D0]',
-          text: 'text-[#159B70]',
-          badge: 'bg-[#159B70] text-white',
-          glow: 'shadow-[0_0_20px_rgba(21,155,112,0.15)]'
-        };
+    try {
+      const res = await queryBackendPrediction(payload);
+      if (res.status === 'success') {
+        setPredictionResult(res);
+      } else {
+        setPredictionError(res.message || 'Model prediction failed on backend.');
+      }
+    } catch (err: any) {
+      setPredictionError(err.message || 'Network error communicating with ML backend API.');
+    } finally {
+      setIsPredicting(false);
     }
   };
 
-  const riskStyle = getRiskStyle(evalResult.riskTier);
+  // Sample prompt pre-fills
+  const loadPresetText = (typePreset: 'nominal' | 'overload') => {
+    if (typePreset === 'nominal') {
+      const txt = 'Machine type L, air temperature 300 K, process temperature 310 K, rotational speed 1538 RPM, torque 40 Nm and tool wear 80 minutes.';
+      setNlText(txt);
+      setMType('L');
+      setAirTempStr('300.0');
+      setProcTempStr('310.0');
+      setRotSpeedStr('1538');
+      setTorqueStr('40.0');
+      setToolWearStr('80');
+      setExtractionNotice({ type: 'info', message: 'Loaded Nominal Baseline parameters.' });
+    } else {
+      const txt = 'Machine type H, air temperature 304 K, process temperature 312 K, rotational speed 1280 RPM, torque 68 Nm and tool wear 225 minutes.';
+      setNlText(txt);
+      setMType('H');
+      setAirTempStr('304.0');
+      setProcTempStr('312.0');
+      setRotSpeedStr('1280');
+      setTorqueStr('68.0');
+      setToolWearStr('225');
+      setExtractionNotice({ type: 'warning', message: 'Loaded High Thermal & Torque Overload parameters.' });
+    }
+  };
+
+  // Derived prediction metrics
+  const preds = predictionResult?.predictions || {};
+  const isFailurePredicted = (preds.LGBMClassifier === 1) || (preds.DecisionTreeClassifier === 1);
+  const lgbmProbVal = preds.lgbm_failure_probability ?? (predictionResult?.failure_probability_percent !== undefined ? predictionResult.failure_probability_percent / 100 : null);
+  const failureProbDisplay = lgbmProbVal !== null ? (lgbmProbVal * 100).toFixed(2) : null;
+  const isAnomaly = preds.IsolationForest_Anomaly === 'Anomaly';
+  const treePred = preds.DecisionTreeClassifier;
+  const lgbmPred = preds.LGBMClassifier;
+  const ridgeTorque = preds.RidgeRegression_Predicted_Torque;
+  const lgbmTorque = preds.LGBMRegressor_Predicted_Torque;
+
+  // Gauge calculation for semi-circle (0% to 100% mapped to angle -90deg to +90deg)
+  const probPercentNum = lgbmProbVal !== null ? Math.min(100, Math.max(0, lgbmProbVal * 100)) : 0;
+  const gaugeAngle = -90 + (probPercentNum / 100) * 180;
 
   return (
-    <div className="flex flex-col gap-7 pb-16 text-[#25213A] max-w-[1520px] mx-auto w-full">
-      {/* 1. Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-1">
+    <div className="p-8 max-w-7xl mx-auto space-y-8 animate-fadeIn text-slate-800">
+      {/* ================= PAGE HEADER ================= */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-200/80 pb-6">
         <div>
-          <div className="flex items-center gap-1.5 text-xs text-[#77748B] mb-1.5 font-medium">
-            <span>Home</span>
-            <span>&gt;</span>
-            <span className="text-[#7950E8] font-semibold">Interactive Prediction Studio</span>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-purple-600 mb-1">
+            <Cpu className="w-4 h-4 text-purple-500" />
+            <span>Academic ML Demonstration</span>
+            <span className="text-slate-300">•</span>
+            <span>Multi-Model Pipeline</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#25213A]">
-            Model Prediction &amp; Diagnostic Studio
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+            Interactive Machine Health Predictor
           </h1>
-          <p className="text-xs sm:text-sm text-[#77748B] mt-1">
-            Provide customized sensor telemetry inputs and visualize real-time predictive failure outputs across all 7 machine learning models.
+          <p className="text-slate-500 text-sm mt-1 max-w-3xl">
+            Extract equipment parameters from natural language or edit sensor values below. Real-time inference executes the actual trained Scikit-Learn and LightGBM models.
           </p>
         </div>
 
-        {/* Action Trigger Pills */}
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={handleExecutePrediction}
-            disabled={isEvaluating}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#7950E8] to-[#9258F5] text-white font-bold text-xs shadow-md shadow-[#7950E8]/20 hover:opacity-95 transition-all cursor-pointer"
-          >
-            <Play className={`w-3.5 h-3.5 fill-white ${isEvaluating ? 'animate-spin' : ''}`} />
-            <span>{isEvaluating ? 'Evaluating Models...' : 'Run Prediction'}</span>
-          </button>
-
-          <button
-            onClick={handleApplyToFleet}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-[#EAE6F2] text-[#25213A] font-bold text-xs hover:bg-[#FAF9FF] hover:border-[#7950E8] transition-all cursor-pointer shadow-xs"
-          >
-            <CheckCircle2 className="w-3.5 h-3.5 text-[#159B70]" />
-            <span>Apply to Fleet Dashboard</span>
-          </button>
+        {/* Backend Status Badge */}
+        <div className="flex items-center gap-2 self-start md:self-auto bg-white px-3.5 py-2 rounded-xl border border-slate-200 shadow-sm text-xs">
+          <Server className="w-4 h-4 text-slate-400" />
+          <span className="text-slate-500 font-medium">ML Backend:</span>
+          {backendStatus === 'online' ? (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              Online ({modelsLoaded.length || 5} models ready)
+            </span>
+          ) : backendStatus === 'checking' ? (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-50 text-slate-600 font-medium">
+              Connecting...
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-medium border border-amber-200">
+              Offline (Local fallback)
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Applied Confirmation Banner */}
-      {appliedSuccess && (
-        <div className="bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl p-3.5 flex items-center justify-between animate-fadeIn">
-          <div className="flex items-center gap-3">
-            <CheckCircle2 className="w-5 h-5 text-[#10B981]" />
-            <div>
-              <span className="text-xs font-bold text-[#065F46] block">
-                Telemetry Inputs Successfully Applied to {selectedMachineId}
-              </span>
-              <span className="text-[11px] text-[#047857]">
-                Live values have been propagated across Factory Overview, Machine Fleet, and Live Monitoring views.
-              </span>
-            </div>
+      {/* ================= STAGE 1: NATURAL LANGUAGE INPUT ================= */}
+      <section className="bg-white rounded-2xl border border-purple-100 shadow-sm p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-600" />
+              Describe Your Machine
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Enter your machine readings in simple English. The engine deterministically extracts the 6 required AI4I telemetry features.
+            </p>
           </div>
-          {onNavigateToView && (
+
+          {/* Quick Demo Pre-fills */}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-slate-400 font-medium">Quick Prompts:</span>
             <button
-              onClick={() => onNavigateToView('overview')}
-              className="text-xs font-bold text-[#047857] hover:underline flex items-center gap-1"
+              type="button"
+              onClick={() => loadPresetText('nominal')}
+              className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 font-medium transition-colors border border-purple-200/60"
             >
-              <span>View in Overview</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              Nominal Baseline
             </button>
-          )}
-        </div>
-      )}
-
-      {/* 2. Main Two-Column Layout: Inputs (Left) and Outputs (Right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-7">
-        
-        {/* =================================================================== */}
-        {/* LEFT COLUMN (5 Cols): GIVE INPUT                                   */}
-        {/* =================================================================== */}
-        <div className="lg:col-span-5 flex flex-col gap-6">
-          <div className="bg-white border border-[#EAE6F2] rounded-2xl p-6 shadow-sm flex flex-col gap-5">
-            <div className="flex items-center justify-between border-b border-[#F7F6FC] pb-3.5">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-[#FAF9FF] border border-[#EAE6F2] flex items-center justify-center text-[#7950E8]">
-                  <Sliders className="w-4 h-4" />
-                </div>
-                <div>
-                  <h2 className="text-sm font-bold text-[#25213A]">Telemetry Input Parameters</h2>
-                  <span className="text-[11px] text-[#77748B]">Adjust operational parameters in real time</span>
-                </div>
-              </div>
-
-              {/* Machine Picker */}
-              <select
-                value={selectedMachineId}
-                onChange={(e) => setSelectedMachineId(e.target.value)}
-                className="text-xs font-mono font-bold bg-[#FAF9FF] border border-[#EAE6F2] rounded-lg px-2.5 py-1.5 text-[#25213A] focus:outline-none focus:border-[#7950E8]"
-              >
-                {machines.map(m => (
-                  <option key={m.id} value={m.id}>{m.id} ({m.name.slice(0, 16)}...)</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Scenario Quick-Presets */}
-            <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#77748B] font-mono block mb-2">
-                Scenario Presets (1-Click Load)
-              </span>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => handleLoadScenario('nominal')}
-                  className="px-2.5 py-1.5 rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] hover:bg-[#DCFCE7] text-[#159B70] text-[11px] font-bold text-left transition-all"
-                >
-                  🟢 Healthy Run
-                </button>
-                <button
-                  onClick={() => handleLoadScenario('hdf')}
-                  className="px-2.5 py-1.5 rounded-lg border border-[#FED7AA] bg-[#FFF7ED] hover:bg-[#FFEDD5] text-[#EA580C] text-[11px] font-bold text-left transition-all"
-                >
-                  🔴 Thermal (HDF)
-                </button>
-                <button
-                  onClick={() => handleLoadScenario('twf')}
-                  className="px-2.5 py-1.5 rounded-lg border border-[#FECACA] bg-[#FEF2F2] hover:bg-[#FEE2E2] text-[#DC2626] text-[11px] font-bold text-left transition-all"
-                >
-                  🔴 Tool Wear (TWF)
-                </button>
-                <button
-                  onClick={() => handleLoadScenario('pwf')}
-                  className="px-2.5 py-1.5 rounded-lg border border-[#FED7AA] bg-[#FFF7ED] hover:bg-[#FFEDD5] text-[#EA580C] text-[11px] font-bold text-left transition-all"
-                >
-                  🔴 Power Fault (PWF)
-                </button>
-                <button
-                  onClick={() => handleLoadScenario('osf')}
-                  className="px-2.5 py-1.5 rounded-lg border border-[#FED7AA] bg-[#FFF7ED] hover:bg-[#FFEDD5] text-[#D97706] text-[11px] font-bold text-left transition-all"
-                >
-                  🟠 Overstrain (OSF)
-                </button>
-                <button
-                  onClick={() => handleLoadScenario('bearing')}
-                  className="px-2.5 py-1.5 rounded-lg border border-[#F6B7C1] bg-[#FCEBED] hover:bg-[#FAD7DC] text-[#DC5268] text-[11px] font-bold text-left transition-all"
-                >
-                  ⚡ Harmonic Surge
-                </button>
-              </div>
-            </div>
-
-            {/* Product Type Variant */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-xs">
-                <span className="font-semibold text-[#25213A]">Machine Product Type</span>
-                <span className="text-[#77748B] font-mono text-[11px]">AI4I Variant</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'L', label: 'Type L (Low Toughness)' },
-                  { id: 'M', label: 'Type M (Medium)' },
-                  { id: 'H', label: 'Type H (High-Duty)' },
-                ].map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => setMachineType(t.id as any)}
-                    className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition-all ${
-                      machineType === t.id
-                        ? 'bg-[#7950E8] text-white border-[#7950E8] shadow-xs'
-                        : 'bg-[#FAF9FF] text-[#25213A] border-[#EAE6F2] hover:border-[#7950E8]'
-                    }`}
-                  >
-                    {t.id} - {t.id === 'L' ? 'Low' : t.id === 'M' ? 'Medium' : 'High'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Slider Inputs */}
-            <div className="space-y-4 pt-2">
-              {/* Rotational Speed */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-[#25213A]">Rotational Speed (RPM)</span>
-                  <span className="font-mono font-bold text-[#7950E8]">{rotSpeed} RPM</span>
-                </div>
-                <input
-                  type="range"
-                  min="600"
-                  max="2800"
-                  step="10"
-                  value={rotSpeed}
-                  onChange={(e) => setRotSpeed(Number(e.target.value))}
-                  className="w-full accent-[#7950E8] cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-[#77748B] font-mono">
-                  <span>600 RPM</span>
-                  <span>Baseline: 1538 RPM</span>
-                  <span>2800 RPM</span>
-                </div>
-              </div>
-
-              {/* Mechanical Torque */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-[#25213A]">Mechanical Torque (Nm)</span>
-                  <span className="font-mono font-bold text-[#7950E8]">{torque} Nm</span>
-                </div>
-                <input
-                  type="range"
-                  min="10"
-                  max="90"
-                  step="0.5"
-                  value={torque}
-                  onChange={(e) => setTorque(Number(e.target.value))}
-                  className="w-full accent-[#7950E8] cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-[#77748B] font-mono">
-                  <span>10 Nm</span>
-                  <span>Baseline: 40.0 Nm</span>
-                  <span>90 Nm</span>
-                </div>
-              </div>
-
-              {/* Cumulative Tool Wear */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-[#25213A]">Cumulative Tool Wear (min)</span>
-                  <span className={`font-mono font-bold ${toolWear >= 200 ? 'text-[#DC5268]' : 'text-[#7950E8]'}`}>
-                    {toolWear} min {toolWear >= 200 ? '(EXHAUSTED)' : ''}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="260"
-                  step="1"
-                  value={toolWear}
-                  onChange={(e) => setToolWear(Number(e.target.value))}
-                  className="w-full accent-[#7950E8] cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-[#77748B] font-mono">
-                  <span>0 min</span>
-                  <span>Critical Limit: 200 min</span>
-                  <span>260 min</span>
-                </div>
-              </div>
-
-              {/* Process Temperature */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-[#25213A]">Process Temperature</span>
-                  <span className="font-mono font-bold text-[#7950E8]">
-                    {procTemp} K ({Math.round(procTemp - 273.15)}°C)
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="302"
-                  max="325"
-                  step="0.2"
-                  value={procTemp}
-                  onChange={(e) => setProcTemp(Number(e.target.value))}
-                  className="w-full accent-[#7950E8] cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-[#77748B] font-mono">
-                  <span>302 K (29°C)</span>
-                  <span>Norm: 310 K (37°C)</span>
-                  <span>325 K (52°C)</span>
-                </div>
-              </div>
-
-              {/* Ambient Air Temperature */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-[#25213A]">Ambient Air Temperature</span>
-                  <span className="font-mono font-bold text-[#7950E8]">
-                    {airTemp} K ({Math.round(airTemp - 273.15)}°C)
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="295"
-                  max="308"
-                  step="0.2"
-                  value={airTemp}
-                  onChange={(e) => setAirTemp(Number(e.target.value))}
-                  className="w-full accent-[#7950E8] cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-[#77748B] font-mono">
-                  <span>295 K (22°C)</span>
-                  <span>Norm: 300 K (27°C)</span>
-                  <span>308 K (35°C)</span>
-                </div>
-              </div>
-
-              {/* Core Vibration RMS */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-[#25213A]">Vibration RMS (mm/s)</span>
-                  <span className={`font-mono font-bold ${vibration > 50 ? 'text-[#DC5268]' : 'text-[#7950E8]'}`}>
-                    {vibration} mm/s {vibration > 50 ? '(BREACH)' : ''}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="25"
-                  max="80"
-                  step="0.5"
-                  value={vibration}
-                  onChange={(e) => setVibration(Number(e.target.value))}
-                  className="w-full accent-[#7950E8] cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-[#77748B] font-mono">
-                  <span>25 mm/s</span>
-                  <span>Threshold: 50.0 mm/s</span>
-                  <span>80 mm/s</span>
-                </div>
-              </div>
-
-              {/* Hydraulic Pressure */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-[#25213A]">Fluid / Hydraulic Pressure (PSI)</span>
-                  <span className="font-mono font-bold text-[#7950E8]">{pressure} PSI</span>
-                </div>
-                <input
-                  type="range"
-                  min="70"
-                  max="160"
-                  step="0.5"
-                  value={pressure}
-                  onChange={(e) => setPressure(Number(e.target.value))}
-                  className="w-full accent-[#7950E8] cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-[#77748B] font-mono">
-                  <span>70 PSI</span>
-                  <span>Normal: 85 - 118 PSI</span>
-                  <span>160 PSI</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Reset Button */}
             <button
-              onClick={() => handleLoadScenario('nominal')}
-              className="w-full py-2.5 rounded-xl border border-[#EAE6F2] hover:bg-[#FAF9FF] text-xs font-semibold text-[#77748B] hover:text-[#25213A] transition-colors flex items-center justify-center gap-1.5"
+              type="button"
+              onClick={() => loadPresetText('overload')}
+              className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-medium transition-colors border border-rose-200/60"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset to Certified Factory Baseline</span>
+              Overload Scenario
             </button>
           </div>
         </div>
 
-        {/* =================================================================== */}
-        {/* RIGHT COLUMN (7 Cols): LIVE OUTPUT DISPLAY IN DASHBOARD            */}
-        {/* =================================================================== */}
-        <div className="lg:col-span-7 flex flex-col gap-6">
+        {/* Text Area */}
+        <div className="relative">
+          <textarea
+            value={nlText}
+            onChange={(e) => setNlText(e.target.value)}
+            rows={3}
+            className="w-full p-4 rounded-xl border border-slate-200 bg-slate-50/50 text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none font-normal leading-relaxed"
+            placeholder="Example: Machine type L, air temperature 300 K, process temperature 310 K, rotational speed 1538 RPM, torque 40 Nm and tool wear 80 minutes."
+          />
+        </div>
 
-          {/* 1. Hero Risk Assessment Card */}
-          <div className={`border rounded-2xl p-6 sm:p-7 shadow-sm transition-all ${riskStyle.bg} ${riskStyle.border} ${riskStyle.glow}`}>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className={`text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ${riskStyle.badge}`}>
-                    {evalResult.riskTier} RISK SEVERITY
-                  </span>
-                  <span className="text-[11px] font-mono font-medium text-[#77748B]">
-                    Ensemble Consensus
-                  </span>
-                </div>
-                <h3 className="text-xl sm:text-2xl font-extrabold text-[#25213A]">
-                  {evalResult.riskTier === 'Severe' ? 'Catastrophic Failure Imminent' :
-                   evalResult.riskTier === 'High' ? 'Sub-System Drift Anomaly Detected' :
-                   evalResult.riskTier === 'Moderate' ? 'Non-Critical Early Degradation' :
-                   'Nominal Machinery Health'}
-                </h3>
-                <p className="text-xs text-[#77748B] mt-1 font-medium">
-                  {evalResult.urgency} • Machine condition evaluated against certified physics tolerances.
-                </p>
+        {/* Action & Feedback */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+          <div>
+            {extractionNotice && (
+              <div className={`text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${
+                extractionNotice.type === 'success' 
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                  : extractionNotice.type === 'warning'
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : 'bg-blue-50 text-blue-700 border-blue-200'
+              }`}>
+                {extractionNotice.type === 'success' ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                ) : (
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                )}
+                <span>{extractionNotice.message}</span>
               </div>
-
-              {/* Big Score Callout */}
-              <div className="text-right sm:text-right flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-3 sm:pt-0 border-[#EAE6F2]">
-                <div className="text-3xl sm:text-4xl font-extrabold font-mono tabular-nums leading-none" style={{ color: evalResult.riskTier === 'Severe' ? '#DC5268' : (evalResult.riskTier === 'High' ? '#EA580C' : '#159B70') }}>
-                  {evalResult.failureProbability}%
-                </div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#77748B] font-mono mt-1">
-                  Chance of Failure
-                </span>
-                <span className="text-[10px] text-[#77748B] font-mono">
-                  Health Index: {evalResult.healthScore}%
-                </span>
-              </div>
-            </div>
-
-            {/* Actionable Maintenance Recommendation */}
-            <div className="mt-5 pt-4 border-t border-black/5 bg-white/70 rounded-xl p-3.5 flex items-start gap-3">
-              <Wrench className="w-4 h-4 text-[#7950E8] flex-shrink-0 mt-0.5" />
-              <div className="text-xs">
-                <span className="font-bold text-[#25213A] block mb-0.5">Recommended Maintenance Action:</span>
-                <span className="text-[#25213A]/90">{evalResult.recommendation}</span>
-              </div>
-            </div>
+            )}
           </div>
 
-          {/* 2. 7-Model Prediction Breakdown Grid */}
-          <div className="bg-white border border-[#EAE6F2] rounded-2xl p-6 shadow-sm flex flex-col gap-5">
-            <div className="flex items-center justify-between border-b border-[#F7F6FC] pb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-[#FAF9FF] border border-[#EAE6F2] flex items-center justify-center text-[#7950E8]">
-                  <Cpu className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-[#25213A]">7-Model Inference Breakdown</h3>
-                  <span className="text-[11px] text-[#77748B]">Real-time individual model classification &amp; regression outputs</span>
-                </div>
-              </div>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 bg-[#FAF9FF] border border-[#EAE6F2] text-[#7950E8] rounded">
-                7 Models Active
+          <button
+            type="button"
+            onClick={handleExtractValues}
+            disabled={isExtracting || !nlText.trim()}
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-semibold text-xs tracking-wide shadow-sm hover:shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+          >
+            {isExtracting ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span>Parsing Description...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Extract Sensor Values</span>
+              </>
+            )}
+          </button>
+        </div>
+      </section>
+
+      {/* ================= STAGE 2: SIX EDITABLE SENSOR CARDS ================= */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              Extracted Machine Parameters
+            </h2>
+            <p className="text-xs text-slate-500">
+              Verify and edit the 6 numerical features expected by the trained Scikit-Learn models.
+            </p>
+          </div>
+          <div className="text-xs font-medium text-slate-500">
+            Layout: <span className="text-purple-600 font-semibold">3 × 2 Architecture</span>
+          </div>
+        </div>
+
+        {/* 3x2 Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {/* Card 1: Product Type */}
+          <div className={`p-4 rounded-xl border transition-all ${
+            isTypeValid ? 'bg-white border-slate-200 shadow-sm' : 'bg-rose-50/40 border-rose-200'
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-700">Product Type</span>
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                Valid
               </span>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              {/* LightGBM */}
-              <div className="p-3 rounded-xl border border-[#EAE6F2] bg-[#FAF9FF] flex flex-col justify-between gap-2">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-[#25213A]">LightGBM Classifier</span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${evalResult.models.lgbm.pred === 1 ? 'bg-[#FCEBED] text-[#DC5268]' : 'bg-[#ECFDF5] text-[#159B70]'}`}>
-                    {evalResult.models.lgbm.label}
-                  </span>
-                </div>
-                <div className="flex justify-between text-[11px] text-[#77748B]">
-                  <span>Confidence:</span>
-                  <span className="font-mono font-semibold text-[#25213A]">{evalResult.models.lgbm.conf}</span>
-                </div>
-              </div>
-
-              {/* XGBoost */}
-              <div className="p-3 rounded-xl border border-[#EAE6F2] bg-[#FAF9FF] flex flex-col justify-between gap-2">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-[#25213A]">XGBoost Classifier</span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${evalResult.models.xgb.pred === 1 ? 'bg-[#FCEBED] text-[#DC5268]' : 'bg-[#ECFDF5] text-[#159B70]'}`}>
-                    {evalResult.models.xgb.label}
-                  </span>
-                </div>
-                <div className="flex justify-between text-[11px] text-[#77748B]">
-                  <span>Confidence:</span>
-                  <span className="font-mono font-semibold text-[#25213A]">{evalResult.models.xgb.conf}</span>
-                </div>
-              </div>
-
-              {/* Decision Tree */}
-              <div className="p-3 rounded-xl border border-[#EAE6F2] bg-[#FAF9FF] flex flex-col justify-between gap-2">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-[#25213A]">Decision Tree (White-Box)</span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${evalResult.models.tree.pred === 1 ? 'bg-[#FCEBED] text-[#DC5268]' : 'bg-[#ECFDF5] text-[#159B70]'}`}>
-                    {evalResult.models.tree.label}
-                  </span>
-                </div>
-                <div className="flex justify-between text-[11px] text-[#77748B]">
-                  <span>Trigger Rule:</span>
-                  <span className="font-mono font-semibold text-[#7950E8]">{evalResult.models.tree.rule}</span>
-                </div>
-              </div>
-
-              {/* Isolation Forest */}
-              <div className="p-3 rounded-xl border border-[#EAE6F2] bg-[#FAF9FF] flex flex-col justify-between gap-2">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-[#25213A]">Isolation Forest (Anomaly)</span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${evalResult.models.isolationForest.isOutlier ? 'bg-[#FFF7ED] text-[#EA580C]' : 'bg-[#ECFDF5] text-[#159B70]'}`}>
-                    {evalResult.models.isolationForest.isOutlier ? 'Outlier Detected' : 'In-Distribution'}
-                  </span>
-                </div>
-                <div className="flex justify-between text-[11px] text-[#77748B]">
-                  <span>Watchdog Status:</span>
-                  <span className="font-mono text-[#25213A]">{evalResult.models.isolationForest.status}</span>
-                </div>
-              </div>
-
-              {/* LSTM Neural Network */}
-              <div className="p-3 rounded-xl border border-[#EAE6F2] bg-[#FAF9FF] flex flex-col justify-between gap-2">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-[#25213A]">LSTM Deep Recurrent Net</span>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${evalResult.models.lstm.flag ? 'bg-[#FCEBED] text-[#DC5268]' : 'bg-[#ECFDF5] text-[#159B70]'}`}>
-                    {evalResult.models.lstm.flag ? 'Temporal Wear Trigger' : 'Sequence Normal'}
-                  </span>
-                </div>
-                <div className="flex justify-between text-[11px] text-[#77748B]">
-                  <span>Sequence Probability:</span>
-                  <span className="font-mono font-semibold text-[#25213A]">{evalResult.models.lstm.prob}</span>
-                </div>
-              </div>
-
-              {/* LGBM Regressor */}
-              <div className="p-3 rounded-xl border border-[#EAE6F2] bg-[#FAF9FF] flex flex-col justify-between gap-2">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-[#25213A]">LGBM Torque Regressor</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#FAF9FF] text-[#7950E8] border border-[#EAE6F2]">
-                    Pred: {evalResult.models.lgbmRegressor.torque} Nm
-                  </span>
-                </div>
-                <div className="flex justify-between text-[11px] text-[#77748B]">
-                  <span>Load Delta (Actual - Pred):</span>
-                  <span className={`font-mono font-bold ${Math.abs(evalResult.models.lgbmRegressor.diff) > 15 ? 'text-[#DC5268]' : 'text-[#159B70]'}`}>
-                    {evalResult.models.lgbmRegressor.diff > 0 ? `+${evalResult.models.lgbmRegressor.diff}` : evalResult.models.lgbmRegressor.diff} Nm
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 3. Sensor Tolerance Status Table */}
-          <div className="bg-white border border-[#EAE6F2] rounded-2xl p-6 shadow-sm">
-            <h3 className="text-sm font-bold text-[#25213A] mb-3">Live Telemetry Tolerance Status</h3>
-            <div className="space-y-2.5">
-              {[
-                { name: 'Core Vibration RMS', val: `${vibration} mm/s`, limit: 'Max: 50.0 mm/s', status: evalResult.tolerances.vibration },
-                { name: 'Process Temperature', val: `${procTemp} K (${Math.round(procTemp - 273.15)}°C)`, limit: 'Max: 313.0 K', status: evalResult.tolerances.temperature },
-                { name: 'Rotational Velocity', val: `${rotSpeed} RPM`, limit: 'Certified: 1350 - 2200 RPM', status: evalResult.tolerances.speed },
-                { name: 'Drive Torque', val: `${torque} Nm`, limit: 'Normal: 25.0 - 55.0 Nm', status: evalResult.tolerances.torque },
-                { name: 'Tool Cutting Wear', val: `${toolWear} min`, limit: 'Exhaustion: 200 min', status: evalResult.tolerances.wear },
-                { name: 'Hydraulic Pressure', val: `${pressure} PSI`, limit: 'Normal: 85 - 118 PSI', status: evalResult.tolerances.pressure },
-              ].map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between text-xs p-2.5 rounded-lg bg-[#FAF9FF] border border-[#EAE6F2]">
-                  <div>
-                    <span className="font-semibold text-[#25213A] block">{item.name}</span>
-                    <span className="text-[11px] text-[#77748B] font-mono">{item.limit}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono font-bold text-[#25213A]">{item.val}</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase font-mono ${
-                      item.status === 'critical' ? 'bg-[#FCEBED] text-[#DC5268] border border-[#F6B7C1]' :
-                      item.status === 'warning' ? 'bg-[#FFF7ED] text-[#EA580C] border border-[#FED7AA]' :
-                      'bg-[#ECFDF5] text-[#159B70] border border-[#A7F3D0]'
-                    }`}>
-                      {item.status === 'critical' ? 'Out of Spec' : item.status === 'warning' ? 'Early Drift' : 'Certified Normal'}
-                    </span>
-                  </div>
-                </div>
+            <div className="text-[11px] text-slate-400 mb-2">Quality Variant: L (50%), M (30%), H (20%)</div>
+            <div className="grid grid-cols-3 gap-2">
+              {(['L', 'M', 'H'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setMType(t)}
+                  className={`py-2 text-xs font-bold rounded-lg border transition-all ${
+                    mType === t
+                      ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  Type {t}
+                </button>
               ))}
             </div>
           </div>
 
-          {/* 4. Instant Work Order Dispatch Card */}
-          {evalResult.riskTier !== 'Low' && onCreateWorkOrder && (
-            <div className="bg-[#FAF9FF] border border-[#EAE6F2] rounded-2xl p-5 flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold text-[#25213A] block">
-                  Generate Corrective Work Order for {selectedMachineId}
+          {/* Card 2: Air Temperature */}
+          <div className={`p-4 rounded-xl border transition-all ${
+            isAirValid ? 'bg-white border-slate-200 shadow-sm' : 'bg-rose-50/40 border-rose-200'
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-700">Air Temperature</span>
+              {isAirValid ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  Valid
                 </span>
-                <span className="text-[11px] text-[#77748B]">
-                  Schedule immediate field maintenance checklist for {evalResult.urgency}.
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200">
+                  Range: 280-320 K
                 </span>
-              </div>
-              <button
-                onClick={() => {
-                  onCreateWorkOrder(
-                    `Interactive Diagnostic: ${evalResult.riskTier} Risk Detected on ${selectedMachineId}`,
-                    `Generated from Interactive Prediction Studio: ${evalResult.recommendation}. Inputs: Vibration=${vibration} mm/s, Temp=${procTemp} K, Torque=${torque} Nm.`
-                  );
-                  alert(`Work Order Dispatched for ${selectedMachineId}! Available in Maintenance Management.`);
-                }}
-                className="px-4 py-2 rounded-xl bg-[#DC5268] hover:bg-[#C94258] text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
-              >
-                Dispatch Work Order
-              </button>
+              )}
             </div>
-          )}
+            <div className="text-[11px] text-slate-400 mb-2">Nominal Baseline: {RANGES.airTemp.nominal}</div>
+            <div className="relative">
+              <input
+                type="number"
+                step="0.1"
+                value={airTempStr}
+                onChange={(e) => setAirTempStr(e.target.value)}
+                className={`w-full px-3 py-2 pr-10 rounded-lg text-sm font-semibold border ${
+                  isAirValid ? 'border-slate-200 focus:border-purple-500' : 'border-rose-300 bg-rose-50/30'
+                } focus:outline-none focus:ring-2 focus:ring-purple-500/20`}
+              />
+              <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">K</span>
+            </div>
+          </div>
 
+          {/* Card 3: Process Temperature */}
+          <div className={`p-4 rounded-xl border transition-all ${
+            isProcValid ? 'bg-white border-slate-200 shadow-sm' : 'bg-rose-50/40 border-rose-200'
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-700">Process Temperature</span>
+              {isProcValid ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  Valid
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200">
+                  Range: 290-330 K
+                </span>
+              )}
+            </div>
+            <div className="text-[11px] text-slate-400 mb-2">Nominal Baseline: {RANGES.procTemp.nominal}</div>
+            <div className="relative">
+              <input
+                type="number"
+                step="0.1"
+                value={procTempStr}
+                onChange={(e) => setProcTempStr(e.target.value)}
+                className={`w-full px-3 py-2 pr-10 rounded-lg text-sm font-semibold border ${
+                  isProcValid ? 'border-slate-200 focus:border-purple-500' : 'border-rose-300 bg-rose-50/30'
+                } focus:outline-none focus:ring-2 focus:ring-purple-500/20`}
+              />
+              <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">K</span>
+            </div>
+          </div>
+
+          {/* Card 4: Rotational Speed */}
+          <div className={`p-4 rounded-xl border transition-all ${
+            isSpeedValid ? 'bg-white border-slate-200 shadow-sm' : 'bg-rose-50/40 border-rose-200'
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-700">Rotational Speed</span>
+              {isSpeedValid ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  Valid
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200">
+                  Range: 1000-3000 RPM
+                </span>
+              )}
+            </div>
+            <div className="text-[11px] text-slate-400 mb-2">Nominal Baseline: {RANGES.rotSpeed.nominal}</div>
+            <div className="relative">
+              <input
+                type="number"
+                step="1"
+                value={rotSpeedStr}
+                onChange={(e) => setRotSpeedStr(e.target.value)}
+                className={`w-full px-3 py-2 pr-12 rounded-lg text-sm font-semibold border ${
+                  isSpeedValid ? 'border-slate-200 focus:border-purple-500' : 'border-rose-300 bg-rose-50/30'
+                } focus:outline-none focus:ring-2 focus:ring-purple-500/20`}
+              />
+              <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">RPM</span>
+            </div>
+          </div>
+
+          {/* Card 5: Torque */}
+          <div className={`p-4 rounded-xl border transition-all ${
+            isTorqueValid ? 'bg-white border-slate-200 shadow-sm' : 'bg-rose-50/40 border-rose-200'
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-700">Torque</span>
+              {isTorqueValid ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  Valid
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200">
+                  Range: 3-95 Nm
+                </span>
+              )}
+            </div>
+            <div className="text-[11px] text-slate-400 mb-2">Nominal Baseline: {RANGES.torque.nominal}</div>
+            <div className="relative">
+              <input
+                type="number"
+                step="0.1"
+                value={torqueStr}
+                onChange={(e) => setTorqueStr(e.target.value)}
+                className={`w-full px-3 py-2 pr-10 rounded-lg text-sm font-semibold border ${
+                  isTorqueValid ? 'border-slate-200 focus:border-purple-500' : 'border-rose-300 bg-rose-50/30'
+                } focus:outline-none focus:ring-2 focus:ring-purple-500/20`}
+              />
+              <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">Nm</span>
+            </div>
+          </div>
+
+          {/* Card 6: Tool Wear */}
+          <div className={`p-4 rounded-xl border transition-all ${
+            isWearValid ? 'bg-white border-slate-200 shadow-sm' : 'bg-rose-50/40 border-rose-200'
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-700">Tool Wear</span>
+              {isWearValid ? (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  Valid
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200">
+                  Range: 0-300 min
+                </span>
+              )}
+            </div>
+            <div className="text-[11px] text-slate-400 mb-2">Failure Limit: 200 - 240 min</div>
+            <div className="relative">
+              <input
+                type="number"
+                step="1"
+                value={toolWearStr}
+                onChange={(e) => setToolWearStr(e.target.value)}
+                className={`w-full px-3 py-2 pr-10 rounded-lg text-sm font-semibold border ${
+                  isWearValid ? 'border-slate-200 focus:border-purple-500' : 'border-rose-300 bg-rose-50/30'
+                } focus:outline-none focus:ring-2 focus:ring-purple-500/20`}
+              />
+              <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">min</span>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* ================= STAGE 3: PREDICTION ACTION BUTTON ================= */}
+      <section className="bg-gradient-to-r from-purple-50 via-white to-blue-50 p-6 rounded-2xl border border-purple-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="text-sm font-bold text-slate-900 flex items-center gap-2">
+            <Layers className="w-4 h-4 text-purple-600" />
+            <span>Ready for Machine Learning Inference</span>
+          </div>
+          <p className="text-xs text-slate-500">
+            Executes Decision Tree, LightGBM, Isolation Forest, and Torque Regressors on the Flask ML engine.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handlePredict}
+            disabled={!allFieldsValid || isPredicting}
+            className="inline-flex items-center justify-center gap-2 px-8 py-3 rounded-xl bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-bold text-sm tracking-wide shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+          >
+            {isPredicting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span>Evaluating ML Pipeline...</span>
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4 fill-white" />
+                <span>Predict Machine Condition</span>
+              </>
+            )}
+          </button>
+        </div>
+      </section>
+
+      {/* Prediction Error Alert */}
+      {predictionError && (
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+          <span>{predictionError}</span>
+        </div>
+      )}
+
+      {/* ================= STAGE 4: VISUAL RESULT DASHBOARD ================= */}
+      {predictionResult && (
+        <section className="space-y-6 animate-fadeIn pt-2">
+          {/* Section Banner Header */}
+          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">
+                Machine Learning Evaluation Results
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Authentic outputs generated from the trained model artifacts.
+              </p>
+            </div>
+            <div className="text-[11px] font-mono text-slate-400 bg-slate-100 px-2.5 py-1 rounded-md">
+              Pipeline: Z-Score Scaler &rarr; Classifiers &amp; IsolationForest | Raw &rarr; Regressors
+            </div>
+          </div>
+
+          {/* Result Card A: Overall Machine Condition Banner */}
+          <div className={`p-6 rounded-2xl border transition-all ${
+            isFailurePredicted
+              ? 'bg-rose-50/80 border-rose-200 text-rose-900 shadow-sm'
+              : 'bg-emerald-50/80 border-emerald-200 text-emerald-900 shadow-sm'
+          }`}>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-start gap-4">
+                <div className={`p-3 rounded-xl ${
+                  isFailurePredicted ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
+                }`}>
+                  {isFailurePredicted ? (
+                    <ShieldAlert className="w-8 h-8" />
+                  ) : (
+                    <CheckCircle2 className="w-8 h-8" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider opacity-75">
+                      Overall Condition Assessment
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                      isFailurePredicted ? 'bg-rose-200 text-rose-900' : 'bg-emerald-200 text-emerald-900'
+                    }`}>
+                      Risk Tier: {predictionResult.ensemble_failure_risk || (isFailurePredicted ? 'High' : 'Low')}
+                    </span>
+                  </div>
+                  <h3 className="text-2xl font-extrabold tracking-tight mt-0.5">
+                    {isFailurePredicted ? 'Machine Condition: Failure Predicted' : 'Machine Condition: Normal'}
+                  </h3>
+                  <p className="text-xs opacity-80 mt-1 max-w-2xl leading-relaxed">
+                    {isFailurePredicted
+                      ? 'Telemetry readings exceed the trained decision boundary. Thermal dissipation or kinematic overload conditions detected.'
+                      : 'All sensor telemetry operating within safe statistical baseline envelopes. Nominal machine reliability confirmed.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Pill */}
+              <div className="text-right flex-shrink-0">
+                <div className="text-[11px] font-semibold opacity-60 uppercase">Machine Type</div>
+                <div className="text-xl font-bold font-mono">Variant {mType}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Grid: Gauge (B) + Classifiers (C) + Anomaly (D) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Card B: Failure Probability Gauge */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Failure Probability Gauge
+                  </h4>
+                  <Gauge className="w-4 h-4 text-purple-600" />
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  LightGBM calibrated posterior probability (<code className="font-mono">predict_proba</code> class 1)
+                </p>
+              </div>
+
+              {/* Semi-Circular SVG Gauge */}
+              <div className="py-6 flex flex-col items-center justify-center">
+                <div className="relative w-48 h-28 flex items-end justify-center">
+                  <svg viewBox="0 0 200 110" className="w-full h-full overflow-visible">
+                    {/* Background Arc */}
+                    <path
+                      d="M 20 100 A 80 80 0 0 1 180 100"
+                      fill="none"
+                      stroke="#E2E8F0"
+                      strokeWidth="16"
+                      strokeLinecap="round"
+                    />
+                    {/* Active Arc */}
+                    <path
+                      d="M 20 100 A 80 80 0 0 1 180 100"
+                      fill="none"
+                      stroke={probPercentNum >= 50 ? '#EF4444' : probPercentNum >= 20 ? '#F59E0B' : '#10B981'}
+                      strokeWidth="16"
+                      strokeLinecap="round"
+                      strokeDasharray="251.2"
+                      strokeDashoffset={251.2 - (251.2 * (probPercentNum / 100))}
+                      className="transition-all duration-700 ease-out"
+                    />
+                    {/* Needle Indicator */}
+                    <g transform={`rotate(${gaugeAngle} 100 100)`} className="transition-transform duration-700 ease-out">
+                      <line x1="100" y1="100" x2="100" y2="30" stroke="#1E293B" strokeWidth="3" strokeLinecap="round" />
+                      <circle cx="100" cy="100" r="6" fill="#1E293B" />
+                    </g>
+                  </svg>
+                  {/* Gauge Center Display */}
+                  <div className="absolute -bottom-2 text-center">
+                    <div className="text-3xl font-extrabold text-slate-900 tracking-tight">
+                      {failureProbDisplay !== null ? `${failureProbDisplay}%` : 'N/A'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tier Badge */}
+                <div className="mt-4">
+                  {probPercentNum >= 50 ? (
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                      High Risk (&ge; 50%)
+                    </span>
+                  ) : probPercentNum >= 20 ? (
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                      Moderate Risk (20% - 50%)
+                    </span>
+                  ) : (
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      Low Risk (&lt; 20%)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-400 text-center border-t border-slate-100 pt-3">
+                Source: Calibrated Gradient Boosting Ensemble
+              </div>
+            </div>
+
+            {/* Card C: Classifier Comparison (Decision Tree vs LightGBM) */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between space-y-4">
+              <div>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Classifier Comparison
+                  </h4>
+                  <Cpu className="w-4 h-4 text-purple-600" />
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Supervised binary classification results
+                </p>
+              </div>
+
+              {/* Models Side-by-Side Cards */}
+              <div className="space-y-3">
+                {/* Decision Tree */}
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-slate-800">Decision Tree Classifier</div>
+                    <div className="text-[11px] text-slate-400">Interpretable rule-based benchmark</div>
+                  </div>
+                  <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                    treePred === 1
+                      ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                      : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                  }`}>
+                    {treePred === 1 ? 'Failure (1)' : 'Normal (0)'}
+                  </span>
+                </div>
+
+                {/* LightGBM */}
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-slate-800">LightGBM Classifier</div>
+                    <div className="text-[11px] text-slate-400">Primary Gradient Boosted Trees (GBDT)</div>
+                  </div>
+                  <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
+                    lgbmPred === 1
+                      ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                      : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                  }`}>
+                    {lgbmPred === 1 ? 'Failure (1)' : 'Normal (0)'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Consensus Indicator */}
+              <div className="p-3 rounded-xl bg-purple-50/60 border border-purple-100 flex items-center gap-2 text-xs">
+                {treePred === lgbmPred ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <span className="text-purple-900 font-medium">
+                      <strong>Model Consensus:</strong> Both models agree on <strong>{treePred === 1 ? 'Failure' : 'Normal'}</strong> condition.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                    <span className="text-amber-900 font-medium">
+                      <strong>Divergence:</strong> Decision Tree and LightGBM predicted differing class boundaries.
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Card D: Anomaly Detection Status (Isolation Forest) */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between space-y-4">
+              <div>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Anomaly Detection Status
+                  </h4>
+                  <Activity className="w-4 h-4 text-purple-600" />
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Unsupervised anomaly detection (Isolation Forest)
+                </p>
+              </div>
+
+              <div className="py-2 text-center">
+                <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border ${
+                  isAnomaly 
+                    ? 'bg-rose-50 text-rose-700 border-rose-200' 
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                }`}>
+                  <span className={`w-2.5 h-2.5 rounded-full ${isAnomaly ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
+                  {isAnomaly ? 'Outlier / Anomaly Detected' : 'In-Distribution (Normal)'}
+                </div>
+                <p className="text-xs text-slate-500 mt-3 max-w-xs mx-auto leading-relaxed">
+                  {isAnomaly
+                    ? 'The multidimensional telemetry falls outside the nominal cluster distribution in 6D feature space.'
+                    : 'Operating parameters lie safely within standard multivariate operational distributions.'}
+                </p>
+              </div>
+
+              <div className="text-[11px] text-slate-400 border-t border-slate-100 pt-3">
+                Algorithm: Tree-partitioning path length metric (unsupervised)
+              </div>
+            </div>
+          </div>
+
+          {/* Card E: Torque Regression Comparison */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-100 pb-3">
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Torque Regression Analysis (Physical Kinematics)
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  Comparing actual entered torque against trained continuous regressors (excluding torque from feature matrix)
+                </p>
+              </div>
+              <div className="text-xs font-mono font-semibold text-purple-700 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-100">
+                Entered Torque: {numTorque.toFixed(1)} Nm
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Ridge Regression */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold text-slate-800">Ridge Regression (L2 Regularized)</div>
+                  <div className="text-[11px] text-slate-400">Linear physical estimation</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-bold font-mono text-slate-900">
+                    {ridgeTorque !== undefined ? `${ridgeTorque.toFixed(1)} Nm` : 'N/A'}
+                  </div>
+                  {ridgeTorque !== undefined && (
+                    <div className={`text-[11px] font-semibold ${
+                      Math.abs(numTorque - ridgeTorque) > 10 ? 'text-amber-600' : 'text-slate-500'
+                    }`}>
+                      &Delta; = {(numTorque - ridgeTorque) >= 0 ? '+' : ''}{(numTorque - ridgeTorque).toFixed(1)} Nm
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* LightGBM Regressor */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold text-slate-800">LightGBM Regressor</div>
+                  <div className="text-[11px] text-slate-400">Non-linear gradient boosted regression</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-bold font-mono text-slate-900">
+                    {lgbmTorque !== undefined ? `${lgbmTorque.toFixed(1)} Nm` : 'N/A'}
+                  </div>
+                  {lgbmTorque !== undefined && (
+                    <div className={`text-[11px] font-semibold ${
+                      Math.abs(numTorque - lgbmTorque) > 10 ? 'text-amber-600' : 'text-slate-500'
+                    }`}>
+                      &Delta; = {(numTorque - lgbmTorque) >= 0 ? '+' : ''}{(numTorque - lgbmTorque).toFixed(1)} Nm
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Card F: Compact Sensor Input Summary */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs text-slate-600 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-bold text-slate-700">
+              <Info className="w-4 h-4 text-purple-600 flex-shrink-0" />
+              <span>Inference Feature Payload:</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+              <span className="bg-white px-2.5 py-1 rounded-md border border-slate-200">
+                Type: <strong>{mType}</strong>
+              </span>
+              <span className="bg-white px-2.5 py-1 rounded-md border border-slate-200">
+                Air: <strong>{numAir.toFixed(1)} K</strong>
+              </span>
+              <span className="bg-white px-2.5 py-1 rounded-md border border-slate-200">
+                Process: <strong>{numProc.toFixed(1)} K</strong>
+              </span>
+              <span className="bg-white px-2.5 py-1 rounded-md border border-slate-200">
+                Speed: <strong>{numSpeed} RPM</strong>
+              </span>
+              <span className="bg-white px-2.5 py-1 rounded-md border border-slate-200">
+                Torque: <strong>{numTorque.toFixed(1)} Nm</strong>
+              </span>
+              <span className="bg-white px-2.5 py-1 rounded-md border border-slate-200">
+                Wear: <strong>{numWear} min</strong>
+              </span>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ================= ACADEMIC DEFENCE FOOTER ================= */}
+      <footer className="pt-6 border-t border-slate-200/80 text-xs text-slate-400 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          FactoryMind Machine Learning Subsystem &bull; Dataset: AI4I 2020 Predictive Maintenance
+        </div>
+        <div className="font-mono text-[11px]">
+          Trained on 10,000 synthetic CNC / Milling operational records
+        </div>
+      </footer>
     </div>
   );
 };

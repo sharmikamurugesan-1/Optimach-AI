@@ -248,12 +248,20 @@ def predict():
         # 1. Classification Predictions
         classifier_keys = ["LGBMClassifier", "XGBClassifier", "DecisionTreeClassifier", "RandomForestClassifier", "LogisticRegression"]
         failure_votes = []
+        lgbm_prob = None
         for name in classifier_keys:
             if name in loaded_models:
                 try:
                     pred = int(loaded_models[name].predict(features_scaled)[0])
                     results[name] = pred
                     failure_votes.append(pred)
+
+                    # Extract true calibrated probability from LightGBM if available
+                    if name == "LGBMClassifier" and hasattr(loaded_models[name], "predict_proba"):
+                        proba = loaded_models[name].predict_proba(features_scaled)[0]
+                        lgbm_prob = float(proba[1])
+                        results["LGBMClassifier_Probability"] = round(lgbm_prob, 4)
+                        results["lgbm_failure_probability"] = round(lgbm_prob, 4)
                 except Exception as e:
                     results[name] = f"Error: {str(e)}"
 
@@ -292,13 +300,26 @@ def predict():
                 results["LSTM_Error"] = str(e)
 
         # 5. Composite Risk Score & Failure Assessment
-        failure_rate = (sum(failure_votes) / len(failure_votes)) if failure_votes else 0.0
-        risk_level = "Severe" if failure_rate >= 0.6 else ("High" if failure_rate >= 0.3 else ("Moderate" if failure_rate > 0 else "Low"))
+        if lgbm_prob is not None:
+            failure_prob_pct = round(lgbm_prob * 100, 2)
+            if lgbm_prob >= 0.7:
+                risk_level = "Severe"
+            elif lgbm_prob >= 0.5:
+                risk_level = "High"
+            elif lgbm_prob >= 0.2:
+                risk_level = "Moderate"
+            else:
+                risk_level = "Low"
+        else:
+            failure_rate = (sum(failure_votes) / len(failure_votes)) if failure_votes else 0.0
+            failure_prob_pct = round(failure_rate * 100, 1)
+            risk_level = "Severe" if failure_rate >= 0.6 else ("High" if failure_rate >= 0.3 else ("Moderate" if failure_rate > 0 else "Low"))
 
         return jsonify({
             "status": "success",
             "machine_type": m_type,
             "inputs": {
+                "Type": m_type,
                 "Air_temperature": air_temp,
                 "Process_temperature": proc_temp,
                 "Rotational_speed": rot_speed,
@@ -306,7 +327,7 @@ def predict():
                 "Tool_wear": tool_wear
             },
             "ensemble_failure_risk": risk_level,
-            "failure_probability_percent": round(failure_rate * 100, 1),
+            "failure_probability_percent": failure_prob_pct,
             "predictions": results
         }), 200
 
