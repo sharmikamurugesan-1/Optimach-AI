@@ -35,6 +35,32 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   const warningCount = machines.filter(m => m.status === 'warning').length;
   const criticalCount = machines.filter(m => m.status === 'critical').length;
 
+  // Dynamic Bay Health Calculations
+  const bayAMachines = machines.filter(m => m.location.includes('Bay A'));
+  const bayBMachines = machines.filter(m => m.location.includes('Bay B'));
+  const bayCMachines = machines.filter(m => !m.location.includes('Bay A') && !m.location.includes('Bay B'));
+
+  const rawBayA = bayAMachines.length ? Math.round(bayAMachines.reduce((acc, m) => acc + m.healthScore, 0) / bayAMachines.length) : 88;
+  const rawBayB = bayBMachines.length ? Math.round(bayBMachines.reduce((acc, m) => acc + m.healthScore, 0) / bayBMachines.length) : 74;
+  const rawBayC = bayCMachines.length ? Math.round(bayCMachines.reduce((acc, m) => acc + m.healthScore, 0) / bayCMachines.length) : 92;
+
+  // Time Window modifier
+  const windowShift = timeWindow === 'shift' ? -2 : (timeWindow === '7d' ? 3 : 0);
+  const bayAHealth = Math.min(100, Math.max(20, rawBayA + windowShift));
+  const bayBHealth = Math.min(100, Math.max(20, rawBayB + (timeWindow === 'shift' ? -4 : (timeWindow === '7d' ? 2 : 0))));
+  const bayCHealth = Math.min(100, Math.max(20, rawBayC + (timeWindow === 'shift' ? 1 : (timeWindow === '7d' ? 1 : 0))));
+
+  const dynamicFleetAvg = Math.round((bayAHealth + bayBHealth + bayCHealth) / 3);
+
+  // Dynamic Gateway Reliability based on stream & active critical machines
+  const dynamicReliability = (99.8 - (criticalCount > 0 ? 0.2 : 0) + (timeWindow === '7d' ? 0.1 : 0)).toFixed(1);
+
+  const getHealthColor = (score: number) => {
+    if (score >= 80) return { text: 'text-[#159B70]', bg: 'bg-[#159B70]' };
+    if (score >= 60) return { text: 'text-[#D99117]', bg: 'bg-[#D99117]' };
+    return { text: 'text-[#DC5268]', bg: 'bg-[#DC5268]' };
+  };
+
   // Filtered Events
   const filteredEvents = events.filter(e => {
     if (activityFilter === 'critical') return e.severity === 'critical';
@@ -257,53 +283,68 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               Aggregate telemetry variance and condition trends across production lines.
             </p>
 
-            {/* Inner Health Progress Meter Container */}
+            {/* Inner Health Progress Meter Container (Dynamic Real-Time) */}
             <div className="bg-[#FAF9FF] border border-[#EAE6F2] rounded-xl p-5 sm:p-6 flex flex-col gap-5">
               <div className="flex items-center justify-between pb-3.5 border-b border-[#EAE6F2]">
                 <span className="text-xs font-bold text-[#25213A] font-mono">
-                  Health Index by Production Bay <span className="text-[#77748B] font-normal">(74% Fleet Avg)</span>
+                  Health Index by Production Bay <span className="text-[#77748B] font-normal">({dynamicFleetAvg}% Fleet Avg)</span>
                 </span>
                 <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-[#EEF4FF] text-[#3B82F6] border border-[#DBEAFE]">
-                  99.8% Gateway Reliability
+                  {dynamicReliability}% Gateway Reliability
                 </span>
               </div>
 
               {/* Bay A */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-[#25213A]">
-                    Bay A — Press &amp; Precision Stamping
-                  </span>
-                  <span className="font-mono font-bold text-[#159B70]">88%</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-[#25213A]">
+                      Bay A — Press &amp; Precision Stamping
+                    </span>
+                    <span className="text-[10px] text-[#77748B] font-mono bg-white px-1.5 py-0.5 rounded border border-[#EAE6F2]">
+                      {bayAMachines.length} Units
+                    </span>
+                  </div>
+                  <span className={`font-mono font-bold ${getHealthColor(bayAHealth).text}`}>{bayAHealth}%</span>
                 </div>
                 <div className="w-full bg-[#EAE6F2] h-2.5 rounded-full overflow-hidden">
-                  <div className="bg-[#159B70] h-full rounded-full transition-all duration-700" style={{ width: '88%' }} />
+                  <div className={`${getHealthColor(bayAHealth).bg} h-full rounded-full transition-all duration-700`} style={{ width: `${bayAHealth}%` }} />
                 </div>
               </div>
 
               {/* Bay B */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-[#25213A]">
-                    Bay B — Heavy CNC Milling Line
-                  </span>
-                  <span className="font-mono font-bold text-[#DC5268]">74%</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-[#25213A]">
+                      Bay B — Heavy CNC Milling Line
+                    </span>
+                    <span className="text-[10px] text-[#77748B] font-mono bg-white px-1.5 py-0.5 rounded border border-[#EAE6F2]">
+                      {bayBMachines.length} Units
+                    </span>
+                  </div>
+                  <span className={`font-mono font-bold ${getHealthColor(bayBHealth).text}`}>{bayBHealth}%</span>
                 </div>
                 <div className="w-full bg-[#EAE6F2] h-2.5 rounded-full overflow-hidden">
-                  <div className="bg-[#DC5268] h-full rounded-full transition-all duration-700" style={{ width: '74%' }} />
+                  <div className={`${getHealthColor(bayBHealth).bg} h-full rounded-full transition-all duration-700`} style={{ width: `${bayBHealth}%` }} />
                 </div>
               </div>
 
               {/* Bay C */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-[#25213A]">
-                    Bay C — Rotary &amp; Lathe Cells
-                  </span>
-                  <span className="font-mono font-bold text-[#159B70]">92%</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-[#25213A]">
+                      Bay C — Rotary &amp; Lathe Cells
+                    </span>
+                    <span className="text-[10px] text-[#77748B] font-mono bg-white px-1.5 py-0.5 rounded border border-[#EAE6F2]">
+                      {bayCMachines.length} Units
+                    </span>
+                  </div>
+                  <span className={`font-mono font-bold ${getHealthColor(bayCHealth).text}`}>{bayCHealth}%</span>
                 </div>
                 <div className="w-full bg-[#EAE6F2] h-2.5 rounded-full overflow-hidden">
-                  <div className="bg-[#159B70] h-full rounded-full transition-all duration-700" style={{ width: '92%' }} />
+                  <div className={`${getHealthColor(bayCHealth).bg} h-full rounded-full transition-all duration-700`} style={{ width: `${bayCHealth}%` }} />
                 </div>
               </div>
             </div>

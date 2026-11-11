@@ -4,7 +4,7 @@ import {
   Cpu, 
   Activity, 
   ShieldAlert, 
-  Database, 
+  Sliders, 
   Wrench, 
   GitCompare, 
   Settings, 
@@ -34,7 +34,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'machines', label: 'Machine Fleet', icon: Cpu, badge: null },
     { id: 'live', label: 'Live Monitoring', icon: Activity, badge: 'Live' },
     { id: 'predictions', label: 'Failure Predictions', icon: ShieldAlert, badge: activeAlertCount > 0 ? `${activeAlertCount}` : null },
-    { id: 'datacheck', label: 'Data & Integrations', icon: Database, badge: null },
+    { id: 'simulator', label: 'Interactive Predictor', icon: Sliders, badge: 'Studio' },
     { id: 'maintenance', label: 'Maintenance Management', icon: Wrench, badge: null },
     { id: 'comparison', label: 'Fleet Comparison', icon: GitCompare, badge: null },
   ];

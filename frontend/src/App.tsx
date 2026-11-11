@@ -15,7 +15,7 @@ import { OverviewView } from './views/OverviewView';
 import { MachineIntelligenceView } from './views/MachineIntelligenceView';
 import { LiveMonitorView } from './views/LiveMonitorView';
 import { FailurePredictionView } from './views/FailurePredictionView';
-import { DataCheckView } from './views/DataCheckView';
+import { InteractivePredictorView } from './views/InteractivePredictorView';
 import { MaintenanceHistoryView } from './views/MaintenanceHistoryView';
 import { MachineComparisonView } from './views/MachineComparisonView';
 
@@ -385,10 +385,12 @@ export const App: React.FC = () => {
               />
             )}
 
-            {activeView === 'datacheck' && (
-              <DataCheckView
+            {(activeView === 'simulator' || activeView === 'datacheck') && (
+              <InteractivePredictorView
                 machines={machines}
                 onApplyManualTelemetry={handleApplyManualTelemetry}
+                onNavigateToView={(v) => setActiveView(v)}
+                onCreateWorkOrder={handleCreateWorkOrder}
               />
             )}
 

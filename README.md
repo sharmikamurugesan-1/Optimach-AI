@@ -7,7 +7,7 @@
 
 <br />
 
-[![Live Demo](https://img.shields.io/badge/🌐_Live_Demo-optimach--ai.onrender.com-7C3AED?style=for-the-badge&logo=render&logoColor=white)](https://optimach-ai.onrender.com)
+[![Live Demo](https://img.shields.io/badge/🌐_Live_Demo-optimach--ai--1.onrender.com-7C3AED?style=for-the-badge&logo=render&logoColor=white)](https://optimach-ai-1.onrender.com)
 [![GitHub Repository](https://img.shields.io/badge/GitHub-Optimach--AI-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sharmikamurugesan-1/Optimach-AI)
 [![License: MIT](https://img.shields.io/badge/License-MIT-059669?style=for-the-badge)](https://github.com/sharmikamurugesan-1/Optimach-AI/blob/main/LICENSE)
 
@@ -49,8 +49,8 @@
 
 The application is deployed as a unified full-stack service on Render:
 
-🔗 **Production URL:** [https://optimach-ai.onrender.com](https://optimach-ai.onrender.com)  
-🔗 **API Health Endpoint:** [https://optimach-ai.onrender.com/api/health](https://optimach-ai.onrender.com/api/health)
+🔗 **Production URL:** [https://optimach-ai-1.onrender.com](https://optimach-ai-1.onrender.com) (Mirror: [https://optimach-ai.onrender.com](https://optimach-ai.onrender.com))  
+🔗 **API Health Endpoint:** [https://optimach-ai-1.onrender.com/api/health](https://optimach-ai-1.onrender.com/api/health)
 
 ---
 
