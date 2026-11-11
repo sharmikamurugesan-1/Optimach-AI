@@ -37,71 +37,91 @@ def scale_features(features_array):
     return (features_array - AI4I_MEANS) / (AI4I_STDS + 1e-7)
 
 # ==================================================
-# 2. ASYNC BACKGROUND MODEL LOADING
+# 2. MODEL LOADING (THREAD-SAFE & ROBUST FOR GUNICORN)
 # ==================================================
-def _load_models_async():
-    """Load machine learning models in background so the web server boots in < 0.1s."""
+_models_lock = threading.Lock()
+
+def _load_models():
+    """Load machine learning models reliably in both Gunicorn and Flask development."""
     global label_encoder, scaler, lstm_model
+    with _models_lock:
+        if models_ready_event.is_set():
+            return
 
-    # 1. Label Encoder
-    le_path = os.path.join(MODEL_DIR, "label_encoder_type.joblib")
-    if os.path.isfile(le_path):
-        try:
-            label_encoder = joblib.load(le_path)
-            print("[INIT] Label Encoder loaded.")
-        except Exception as e:
-            print(f"[WARN] Label Encoder skip: {e}")
+        search_dirs = [MODEL_DIR, os.path.dirname(MODEL_DIR), os.getcwd()]
 
-    # 2. Scaler
-    scaler_path = os.path.join(MODEL_DIR, "scaler.joblib")
-    if os.path.isfile(scaler_path):
-        try:
-            scaler = joblib.load(scaler_path)
-            print("[INIT] Scaler loaded.")
-        except Exception as e:
-            print(f"[WARN] Scaler skip: {e}")
+        # 1. Label Encoder
+        for d in search_dirs:
+            le_path = os.path.join(d, "label_encoder_type.joblib")
+            if os.path.isfile(le_path):
+                try:
+                    label_encoder = joblib.load(le_path)
+                    print(f"[INIT] Label Encoder loaded from {le_path}")
+                    break
+                except Exception as e:
+                    print(f"[WARN] Label Encoder skip: {e}")
 
-    # 3. Scikit-Learn / XGBoost / LightGBM models
-    joblib_model_keys = {
-        "DecisionTreeClassifier": "DecisionTreeClassifier_model.joblib",
-        "XGBClassifier": "XGBClassifier_model.joblib",
-        "LGBMClassifier": "LGBMClassifier_model.joblib",
-        "IsolationForest": "IsolationForest_model.joblib",
-        "RidgeRegression": "RidgeRegression_model.joblib",
-        "LGBMRegressor": "LGBMRegressor_model.joblib",
-        "LogisticRegression": "LogisticRegression_model.joblib",
-        "RandomForestClassifier": "RandomForestClassifier_model.joblib"
-    }
+        # 2. Scaler
+        for d in search_dirs:
+            scaler_path = os.path.join(d, "scaler.joblib")
+            if os.path.isfile(scaler_path):
+                try:
+                    scaler = joblib.load(scaler_path)
+                    print(f"[INIT] Scaler loaded from {scaler_path}")
+                    break
+                except Exception as e:
+                    print(f"[WARN] Scaler skip: {e}")
 
-    for name, fname in joblib_model_keys.items():
-        fpath = os.path.join(MODEL_DIR, fname)
-        if os.path.isfile(fpath):
-            try:
-                loaded_models[name] = joblib.load(fpath)
-                print(f"[LOADED] {name}")
-            except Exception as e:
-                print(f"[WARN] {name} skip: {e}")
+        # 3. Scikit-Learn / XGBoost / LightGBM models
+        joblib_model_keys = {
+            "DecisionTreeClassifier": "DecisionTreeClassifier_model.joblib",
+            "XGBClassifier": "XGBClassifier_model.joblib",
+            "LGBMClassifier": "LGBMClassifier_model.joblib",
+            "IsolationForest": "IsolationForest_model.joblib",
+            "RidgeRegression": "RidgeRegression_model.joblib",
+            "LGBMRegressor": "LGBMRegressor_model.joblib",
+            "LogisticRegression": "LogisticRegression_model.joblib",
+            "RandomForestClassifier": "RandomForestClassifier_model.joblib"
+        }
 
-    # 4. Optional LSTM Model
-    lstm_path = os.path.join(MODEL_DIR, "LSTM_model.h5")
-    if os.path.isfile(lstm_path):
-        try:
-            import tensorflow as tf
-            lstm_model = tf.keras.models.load_model(lstm_path, compile=False)
-            print("[LOADED] LSTM Deep Learning Model")
-        except Exception:
-            pass
+        for name, fname in joblib_model_keys.items():
+            if name in loaded_models:
+                continue
+            for d in search_dirs:
+                fpath = os.path.join(d, fname)
+                if os.path.isfile(fpath):
+                    try:
+                        loaded_models[name] = joblib.load(fpath)
+                        print(f"[LOADED] {name} from {d}")
+                        break
+                    except Exception as e:
+                        pass
 
-    models_ready_event.set()
-    print(f"[READY] Machine Learning Engine initialized with {len(loaded_models)} models.")
+        # 4. Optional LSTM Model
+        for d in search_dirs:
+            lstm_path = os.path.join(d, "LSTM_model.h5")
+            if os.path.isfile(lstm_path):
+                try:
+                    import tensorflow as tf
+                    lstm_model = tf.keras.models.load_model(lstm_path, compile=False)
+                    print(f"[LOADED] LSTM Model from {d}")
+                    break
+                except Exception:
+                    pass
 
-# Kick off model loading in a background daemon thread
-threading.Thread(target=_load_models_async, daemon=True).start()
+        models_ready_event.set()
+        print(f"[READY] Machine Learning Engine initialized with {len(loaded_models)} models.")
 
 def _ensure_models():
-    """Ensure background model loading has finished before running inference."""
+    """Ensure models are loaded before running inference or listing."""
     if not models_ready_event.is_set():
-        models_ready_event.wait(timeout=5.0)
+        _load_models()
+
+# Load models at startup
+try:
+    _load_models()
+except Exception as e:
+    print(f"[WARN] Startup model loading: {e}")
 
 # ==================================================
 # 3. PERFORMANCE MIDDLEWARE (GZIP COMPRESSION + CACHING)
