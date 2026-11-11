@@ -9,13 +9,9 @@ import {
   ShieldCheck, 
   Gauge, 
   Activity, 
-  Layers, 
   Check, 
   AlertCircle,
   Wrench,
-  BarChart3,
-  GitBranch,
-  Leaf,
   Lightbulb,
   ArrowRight
 } from 'lucide-react';
@@ -32,7 +28,7 @@ const RANGES = {
   airTemp: { min: 280, max: 320, unit: 'K', label: 'Air Temperature', nominal: '298 - 306 K' },
   procTemp: { min: 290, max: 330, unit: 'K', label: 'Process Temperature', nominal: '308 - 315 K' },
   rotSpeed: { min: 1000, max: 3000, unit: 'RPM', label: 'Rotational Speed', nominal: '1000 - 2000 RPM' },
-  torque: { min: 3, max: 95, unit: 'Nm', label: 'Torque', nominal: '20 - 70 Nm' },
+  torque: { min: 3, max: 120, unit: 'Nm', label: 'Torque', nominal: '20 - 70 Nm' },
   toolWear: { min: 0, max: 300, unit: 'min', label: 'Tool Wear', nominal: '0 - 300 min' },
 };
 
@@ -41,18 +37,18 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
 }) => {
   // 1. Natural Language State
   const [nlText, setNlText] = useState<string>(
-    'Machine type H, air temperature 304 K, process temperature 313 K, rotational speed 1200 RPM, torque 70 Nm and tool wear 240 minutes.'
+    'Machine type H, air temperature 303 K, process temperature 312 K, rotational speed 1250 RPM, torque 75 Nm and tool wear 230 minutes'
   );
   const [extractionNotice, setExtractionNotice] = useState<{ type: 'success' | 'warning' | 'info'; message: string } | null>(null);
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
 
-  // 2. Six Sensor Inputs State (Initial values matching reference)
+  // 2. Six Sensor Inputs State (Initial values matching screenshot)
   const [mType, setMType] = useState<'L' | 'M' | 'H'>('H');
-  const [airTempStr, setAirTempStr] = useState<string>('304');
-  const [procTempStr, setProcTempStr] = useState<string>('313');
-  const [rotSpeedStr, setRotSpeedStr] = useState<string>('1200');
-  const [torqueStr, setTorqueStr] = useState<string>('70');
-  const [toolWearStr, setToolWearStr] = useState<string>('240');
+  const [airTempStr, setAirTempStr] = useState<string>('303');
+  const [procTempStr, setProcTempStr] = useState<string>('312');
+  const [rotSpeedStr, setRotSpeedStr] = useState<string>('1250');
+  const [torqueStr, setTorqueStr] = useState<string>('75');
+  const [toolWearStr, setToolWearStr] = useState<string>('230');
 
   // 3. Backend & Prediction State
   const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('online');
@@ -64,14 +60,14 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
     status: 'success',
     machine_type: 'H',
     ensemble_failure_risk: 'Low',
-    failure_probability_percent: 18.7,
+    failure_probability_percent: 0.0,
     predictions: {
       DecisionTreeClassifier: 0,
-      LGBMClassifier: 1,
+      LGBMClassifier: 0,
       IsolationForest_Anomaly: 'Normal',
       RidgeRegression_Predicted_Torque: 38.5,
       LGBMRegressor_Predicted_Torque: 41.2,
-      lgbm_failure_probability: 0.187
+      lgbm_failure_probability: 0.0001
     }
   });
 
@@ -86,11 +82,11 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
   }, []);
 
   // Validation helpers
-  const numAir = parseFloat(airTempStr) || 304;
-  const numProc = parseFloat(procTempStr) || 313;
-  const numSpeed = parseFloat(rotSpeedStr) || 1200;
-  const numTorque = parseFloat(torqueStr) || 70;
-  const numWear = parseFloat(toolWearStr) || 240;
+  const numAir = parseFloat(airTempStr) || 303;
+  const numProc = parseFloat(procTempStr) || 312;
+  const numSpeed = parseFloat(rotSpeedStr) || 1250;
+  const numTorque = parseFloat(torqueStr) || 75;
+  const numWear = parseFloat(toolWearStr) || 230;
 
   const isAirValid = !isNaN(numAir) && numAir >= RANGES.airTemp.min && numAir <= RANGES.airTemp.max;
   const isProcValid = !isNaN(numProc) && numProc >= RANGES.procTemp.min && numProc <= RANGES.procTemp.max;
@@ -189,7 +185,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
       if (missingList.length === 0) {
         setExtractionNotice({
           type: 'success',
-          message: 'All 6 parameters extracted successfully from your description.'
+          message: 'All 6 parameters extracted successfully.'
         });
       } else if (missingList.length < 6) {
         setExtractionNotice({
@@ -250,43 +246,45 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
       setToolWearStr('80');
       setExtractionNotice({ type: 'info', message: 'Loaded Nominal Baseline parameters.' });
     } else {
-      const txt = 'Machine type H, air temperature 304 K, process temperature 313 K, rotational speed 1200 RPM, torque 70 Nm and tool wear 240 minutes.';
+      const txt = 'Machine type H, air temperature 303 K, process temperature 312 K, rotational speed 1250 RPM, torque 75 Nm and tool wear 230 minutes';
       setNlText(txt);
       setMType('H');
-      setAirTempStr('304');
-      setProcTempStr('313');
-      setRotSpeedStr('1200');
-      setTorqueStr('70');
-      setToolWearStr('240');
+      setAirTempStr('303');
+      setProcTempStr('312');
+      setRotSpeedStr('1250');
+      setTorqueStr('75');
+      setToolWearStr('230');
       setExtractionNotice({ type: 'warning', message: 'Loaded High Stress parameters.' });
     }
   };
 
   // Derived output metrics for UI
   const preds = predictionResult?.predictions || {};
-  const rawProbPct = predictionResult?.failure_probability_percent ?? (preds.lgbm_failure_probability !== undefined ? preds.lgbm_failure_probability * 100 : 18.7);
+  const rawProbPct = predictionResult?.failure_probability_percent ?? (preds.lgbm_failure_probability !== undefined ? preds.lgbm_failure_probability * 100 : 0.0);
   const probPercentNum = Math.min(100, Math.max(0, rawProbPct));
   const failureProbDisplay = probPercentNum.toFixed(1);
 
   const isAnomaly = preds.IsolationForest_Anomaly === 'Anomaly';
-  const treePred = preds.DecisionTreeClassifier ?? 0;
-  const lgbmPred = preds.LGBMClassifier ?? 1;
 
   // Torque Regressors
   const ridgeVal = preds.RidgeRegression_Predicted_Torque ?? 38.5;
   const lgbmRegVal = preds.LGBMRegressor_Predicted_Torque ?? 41.2;
 
-  // Maximum scale for torque bar chart (at least 50 Nm)
-  const maxTorqueScale = Math.max(50, Math.ceil(Math.max(numTorque, ridgeVal, lgbmRegVal) / 10) * 10);
-  const measuredWidthPct = Math.min(100, Math.max(5, (numTorque / maxTorqueScale) * 100));
-  const ridgeWidthPct = Math.min(100, Math.max(5, (ridgeVal / maxTorqueScale) * 100));
-  const lgbmWidthPct = Math.min(100, Math.max(5, (lgbmRegVal / maxTorqueScale) * 100));
+  // Maximum scale for torque bar chart (adapts cleanly to measured input so it never overflows)
+  const maxTorqueScale = Math.max(50, Math.ceil(Math.max(numTorque, ridgeVal, lgbmRegVal, 50) / 10) * 10);
+  const measuredWidthPct = Math.min(100, Math.max(4, (numTorque / maxTorqueScale) * 100));
+  const ridgeWidthPct = Math.min(100, Math.max(4, (ridgeVal / maxTorqueScale) * 100));
+  const lgbmWidthPct = Math.min(100, Math.max(4, (lgbmRegVal / maxTorqueScale) * 100));
 
-  const isFailure = probPercentNum >= 50 || lgbmPred === 1 || treePred === 1;
+  const isFailure = probPercentNum >= 50 || preds.LGBMClassifier === 1 || preds.DecisionTreeClassifier === 1;
+
+  // 6 evenly spaced ticks for the torque axis
+  const tickStep = maxTorqueScale / 5;
+  const torqueTicks = [0, tickStep, tickStep * 2, tickStep * 3, tickStep * 4, maxTorqueScale].map(t => Math.round(t));
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-7 animate-fadeIn text-slate-800">
-      {/* ================= PAGE HEADER ================= */}
+      {/* ================= 1. PAGE HEADER ================= */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-200/80 pb-6">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-purple-600 mb-1">
@@ -311,13 +309,172 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
         </div>
       </div>
 
-      {/* ================= SUCCESS BANNER ================= */}
+      {/* ================= 2. ADJUST TELEMETRY INPUTS SECTION (AT TOP) ================= */}
+      <section className="bg-white rounded-2xl border border-purple-100 shadow-sm p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-purple-600" />
+              Adjust Telemetry Inputs
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Type natural description or edit the 6 parameters below to test different failure scenarios.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => loadPresetText('nominal')}
+              className="px-3 py-1.5 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 font-medium transition-colors border border-purple-200/60"
+            >
+              Nominal Baseline
+            </button>
+            <button
+              type="button"
+              onClick={() => loadPresetText('overload')}
+              className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 font-medium transition-colors border border-rose-200/60"
+            >
+              High Stress Scenario
+            </button>
+          </div>
+        </div>
+
+        {/* Natural Language Search & Predict Buttons */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input
+            type="text"
+            value={nlText}
+            onChange={(e) => setNlText(e.target.value)}
+            className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+            placeholder="Machine type H, air temperature 303 K, process temperature 312 K, rotational speed 1250 RPM, torque 75 Nm and tool wear 230 minutes"
+          />
+          <button
+            type="button"
+            onClick={handleExtractValues}
+            disabled={isExtracting}
+            className="px-4 py-3 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-800 font-semibold text-xs transition-all flex items-center gap-1.5 flex-shrink-0 border border-purple-200"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Extract Values</span>
+          </button>
+          <button
+            type="button"
+            onClick={handlePredict}
+            disabled={!allFieldsValid || isPredicting}
+            className="px-6 py-3 rounded-xl bg-[#6D28D9] hover:bg-[#5B21B6] text-white font-bold text-xs tracking-wide shadow-sm hover:shadow transition-all disabled:opacity-50 flex items-center gap-2 flex-shrink-0"
+          >
+            {isPredicting ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span>Evaluating...</span>
+              </>
+            ) : (
+              <>
+                <Play className="w-3.5 h-3.5 fill-white" />
+                <span>Re-Analyze</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Extraction Feedback */}
+        {extractionNotice && (
+          <div className={`text-xs flex items-center gap-1.5 px-3 py-2 rounded-lg border ${
+            extractionNotice.type === 'success' 
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+              : 'bg-amber-50 text-amber-700 border-amber-200'
+          }`}>
+            <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>{extractionNotice.message}</span>
+          </div>
+        )}
+
+        {/* 6 Numerical Input Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-1">
+          {/* Machine Type */}
+          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/40 text-center">
+            <span className="text-[10px] text-slate-400 font-medium block">Machine Type</span>
+            <div className="flex justify-center gap-1 mt-1.5">
+              {(['L', 'M', 'H'] as const).map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setMType(t)}
+                  className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all ${
+                    mType === t ? 'bg-[#6D28D9] text-white shadow-xs' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Air Temp */}
+          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/40">
+            <span className="text-[10px] text-slate-400 font-medium block">Air Temp (K)</span>
+            <input
+              type="number"
+              value={airTempStr}
+              onChange={(e) => setAirTempStr(e.target.value)}
+              className="w-full mt-1.5 px-2 py-1 text-xs font-bold border border-slate-200 rounded-lg bg-white text-center focus:border-purple-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Process Temp */}
+          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/40">
+            <span className="text-[10px] text-slate-400 font-medium block">Process Temp (K)</span>
+            <input
+              type="number"
+              value={procTempStr}
+              onChange={(e) => setProcTempStr(e.target.value)}
+              className="w-full mt-1.5 px-2 py-1 text-xs font-bold border border-slate-200 rounded-lg bg-white text-center focus:border-purple-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Speed */}
+          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/40">
+            <span className="text-[10px] text-slate-400 font-medium block">Speed (RPM)</span>
+            <input
+              type="number"
+              value={rotSpeedStr}
+              onChange={(e) => setRotSpeedStr(e.target.value)}
+              className="w-full mt-1.5 px-2 py-1 text-xs font-bold border border-slate-200 rounded-lg bg-white text-center focus:border-purple-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Torque */}
+          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/40">
+            <span className="text-[10px] text-slate-400 font-medium block">Torque (Nm)</span>
+            <input
+              type="number"
+              value={torqueStr}
+              onChange={(e) => setTorqueStr(e.target.value)}
+              className="w-full mt-1.5 px-2 py-1 text-xs font-bold border border-slate-200 rounded-lg bg-white text-center focus:border-purple-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Tool Wear */}
+          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/40">
+            <span className="text-[10px] text-slate-400 font-medium block">Tool Wear (min)</span>
+            <input
+              type="number"
+              value={toolWearStr}
+              onChange={(e) => setToolWearStr(e.target.value)}
+              className="w-full mt-1.5 px-2 py-1 text-xs font-bold border border-slate-200 rounded-lg bg-white text-center focus:border-purple-500 focus:outline-none"
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* ================= 3. SUCCESS BANNER ================= */}
       <div className="p-3.5 px-4 rounded-xl bg-[#E8F8EE] border border-[#BDE8CE] text-[#1E7E34] text-xs font-semibold flex items-center gap-2.5 shadow-xs">
         <CheckCircle2 className="w-4 h-4 text-[#28A745] flex-shrink-0" />
         <span>Prediction completed successfully!</span>
       </div>
 
-      {/* ================= TOP GRID (FAILURE PROBABILITY + ANOMALY DETECTION) ================= */}
+      {/* ================= 4. FAILURE PROBABILITY & ANOMALY DETECTION ================= */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Card 1: Failure Probability */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
@@ -335,10 +492,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
           <div className="py-6 flex flex-col items-center justify-center">
             <div className="relative w-64 h-32 flex items-end justify-center">
               <svg viewBox="0 0 200 110" className="w-full h-full overflow-visible">
-                <defs>
-                  {/* Arc Path for reference */}
-                </defs>
-                {/* Segment 1: Green (Left third: 0% - 33%) */}
+                {/* Segment 1: Green (0% - 33%) */}
                 <path
                   d="M 20 100 A 80 80 0 0 1 60 30.7"
                   fill="none"
@@ -346,14 +500,14 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
                   strokeWidth="14"
                   strokeLinecap="round"
                 />
-                {/* Segment 2: Yellow / Amber (Middle third: 33% - 66%) */}
+                {/* Segment 2: Yellow / Amber (33% - 66%) */}
                 <path
                   d="M 64 27.5 A 80 80 0 0 1 136 27.5"
                   fill="none"
                   stroke="#FBBF24"
                   strokeWidth="14"
                 />
-                {/* Segment 3: Red (Right third: 66% - 100%) */}
+                {/* Segment 3: Red (66% - 100%) */}
                 <path
                   d="M 140 30.7 A 80 80 0 0 1 180 100"
                   fill="none"
@@ -425,7 +579,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
               </div>
             </div>
 
-            {/* Industrial 3D Motor Image */}
+            {/* Industrial 3D Machine Image */}
             <div className="flex-shrink-0">
               <img 
                 src="/machine-3d-model.jpg" 
@@ -438,140 +592,69 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
         </div>
       </div>
 
-      {/* ================= MIDDLE GRID (MODEL COMPARISON + TORQUE COMPARISON) ================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Card 3: ML Model Prediction Comparison */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-slate-800">
-              <BarChart3 className="w-5 h-5 text-purple-600" />
-              <h2 className="text-base font-bold text-slate-900">ML Model Prediction Comparison</h2>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Results from different machine learning models
-            </p>
+      {/* ================= 5. TORQUE PREDICTION COMPARISON (FULL WIDTH CARD) ================= */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between space-y-4">
+        <div>
+          <div className="flex items-center gap-2 text-slate-800">
+            <Wrench className="w-5 h-5 text-purple-600" />
+            <h2 className="text-base font-bold text-slate-900">Torque Prediction Comparison</h2>
           </div>
-
-          <div className="grid grid-cols-2 gap-4 mt-6">
-            {/* Decision Tree */}
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                <GitBranch className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Decision Tree Classifier</span>
-              </div>
-              <div className={`p-4 rounded-xl text-center border font-bold text-sm flex items-center justify-center gap-2 ${
-                treePred === 1
-                  ? 'bg-[#FDE8E8] border-[#F8B4B4] text-[#C81E1E]'
-                  : 'bg-[#E8F8EE] border-[#BDE8CE] text-[#1E7E34]'
-              }`}>
-                {treePred === 1 ? (
-                  <>
-                    <AlertCircle className="w-4 h-4 fill-[#C81E1E] text-white" />
-                    <span>Failure</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 fill-[#1E7E34] text-white" />
-                    <span>Normal</span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* LightGBM */}
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                <Leaf className="w-3.5 h-3.5 text-emerald-600" />
-                <span>LightGBM Classifier</span>
-              </div>
-              <div className={`p-4 rounded-xl text-center border font-bold text-sm flex items-center justify-center gap-2 ${
-                lgbmPred === 1
-                  ? 'bg-[#FDE8E8] border-[#F8B4B4] text-[#C81E1E]'
-                  : 'bg-[#E8F8EE] border-[#BDE8CE] text-[#1E7E34]'
-              }`}>
-                {lgbmPred === 1 ? (
-                  <>
-                    <AlertCircle className="w-4 h-4 fill-[#C81E1E] text-white" />
-                    <span>Failure</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 fill-[#1E7E34] text-white" />
-                    <span>Normal</span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Measured vs Predicted Torque
+          </p>
         </div>
 
-        {/* Card 4: Torque Prediction Comparison */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-slate-800">
-              <Wrench className="w-5 h-5 text-purple-600" />
-              <h2 className="text-base font-bold text-slate-900">Torque Prediction Comparison</h2>
+        <div className="space-y-4 mt-2 max-w-4xl">
+          {/* Measured Input Bar */}
+          <div className="flex items-center gap-3 text-xs">
+            <span className="w-32 text-slate-600 font-medium text-right flex-shrink-0">Measured Input</span>
+            <div className="flex-1 bg-slate-100 rounded-lg h-5 overflow-hidden relative">
+              <div 
+                className="h-full bg-[#6D28D9] rounded-lg transition-all duration-700" 
+                style={{ width: `${measuredWidthPct}%` }}
+              />
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Measured vs Predicted Torque
-            </p>
+            <span className="w-16 font-bold font-mono text-slate-900 text-right">{numTorque.toFixed(1)} Nm</span>
           </div>
 
-          <div className="space-y-3.5 mt-5">
-            {/* Measured Input Bar */}
-            <div className="flex items-center gap-3 text-xs">
-              <span className="w-28 text-slate-600 font-medium text-right flex-shrink-0">Measured Input</span>
-              <div className="flex-1 bg-slate-100 rounded-lg h-5 overflow-hidden relative">
-                <div 
-                  className="h-full bg-[#6D28D9] rounded-lg transition-all duration-700" 
-                  style={{ width: `${measuredWidthPct}%` }}
-                />
-              </div>
-              <span className="w-16 font-bold font-mono text-slate-900 text-right">{numTorque.toFixed(1)} Nm</span>
+          {/* Ridge Regression Bar */}
+          <div className="flex items-center gap-3 text-xs">
+            <span className="w-32 text-slate-600 font-medium text-right flex-shrink-0">Ridge Regression</span>
+            <div className="flex-1 bg-slate-100 rounded-lg h-5 overflow-hidden relative">
+              <div 
+                className="h-full bg-[#C4B5FD] rounded-lg transition-all duration-700" 
+                style={{ width: `${ridgeWidthPct}%` }}
+              />
             </div>
+            <span className="w-16 font-bold font-mono text-slate-900 text-right">{ridgeVal.toFixed(1)} Nm</span>
+          </div>
 
-            {/* Ridge Regression Bar */}
-            <div className="flex items-center gap-3 text-xs">
-              <span className="w-28 text-slate-600 font-medium text-right flex-shrink-0">Ridge Regression</span>
-              <div className="flex-1 bg-slate-100 rounded-lg h-5 overflow-hidden relative">
-                <div 
-                  className="h-full bg-[#C4B5FD] rounded-lg transition-all duration-700" 
-                  style={{ width: `${ridgeWidthPct}%` }}
-                />
-              </div>
-              <span className="w-16 font-bold font-mono text-slate-900 text-right">{ridgeVal.toFixed(1)} Nm</span>
+          {/* LightGBM Regressor Bar */}
+          <div className="flex items-center gap-3 text-xs">
+            <span className="w-32 text-slate-600 font-medium text-right flex-shrink-0">LightGBM Regressor</span>
+            <div className="flex-1 bg-slate-100 rounded-lg h-5 overflow-hidden relative">
+              <div 
+                className="h-full bg-[#312E81] rounded-lg transition-all duration-700" 
+                style={{ width: `${lgbmWidthPct}%` }}
+              />
             </div>
+            <span className="w-16 font-bold font-mono text-slate-900 text-right">{lgbmRegVal.toFixed(1)} Nm</span>
+          </div>
 
-            {/* LightGBM Regressor Bar */}
-            <div className="flex items-center gap-3 text-xs">
-              <span className="w-28 text-slate-600 font-medium text-right flex-shrink-0">LightGBM Regressor</span>
-              <div className="flex-1 bg-slate-100 rounded-lg h-5 overflow-hidden relative">
-                <div 
-                  className="h-full bg-[#312E81] rounded-lg transition-all duration-700" 
-                  style={{ width: `${lgbmWidthPct}%` }}
-                />
-              </div>
-              <span className="w-16 font-bold font-mono text-slate-900 text-right">{lgbmRegVal.toFixed(1)} Nm</span>
+          {/* Dynamic X-Axis Ticks */}
+          <div className="flex items-center gap-3 text-[10px] text-slate-400 font-mono pt-1">
+            <span className="w-32"></span>
+            <div className="flex-1 flex justify-between px-1">
+              {torqueTicks.map((t, idx) => (
+                <span key={idx}>{t}</span>
+              ))}
             </div>
-
-            {/* X-Axis Ticks */}
-            <div className="flex items-center gap-3 text-[10px] text-slate-400 font-mono pt-1">
-              <span className="w-28"></span>
-              <div className="flex-1 flex justify-between px-1">
-                <span>0</span>
-                <span>10</span>
-                <span>20</span>
-                <span>30</span>
-                <span>40</span>
-                <span>50</span>
-              </div>
-              <span className="w-16 text-right text-[10px] text-slate-500 font-sans">Torque (Nm)</span>
-            </div>
+            <span className="w-16 text-right text-[10px] text-slate-500 font-sans">Torque (Nm)</span>
           </div>
         </div>
       </div>
 
-      {/* ================= SENSOR TELEMETRY PROFILE (HORIZONTAL TIMELINE) ================= */}
+      {/* ================= 6. SENSOR TELEMETRY PROFILE (HORIZONTAL TIMELINE) ================= */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-5">
         <div>
           <div className="flex items-center gap-2 text-slate-800">
@@ -639,7 +722,7 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
         </div>
       </div>
 
-      {/* ================= BOTTOM ADVICE BAR ================= */}
+      {/* ================= 7. BOTTOM ADVICE BAR ================= */}
       <div className="p-4 rounded-xl bg-[#F5F2FD] border border-[#DDD6FE] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600 flex-shrink-0">
@@ -659,152 +742,6 @@ export const InteractivePredictorView: React.FC<InteractivePredictorViewProps> =
           <ArrowRight className="w-3.5 h-3.5" />
         </button>
       </div>
-
-      {/* ================= COLLAPSIBLE SENSOR ADJUSTMENT DRAWER ================= */}
-      <section className="bg-white rounded-2xl border border-purple-100 shadow-sm p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-purple-600" />
-              Adjust Telemetry Inputs
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Type natural description or edit the 6 parameters below to test different failure scenarios.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() => loadPresetText('nominal')}
-              className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 font-medium transition-colors border border-purple-200/60"
-            >
-              Nominal Baseline
-            </button>
-            <button
-              type="button"
-              onClick={() => loadPresetText('overload')}
-              className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-medium transition-colors border border-rose-200/60"
-            >
-              High Stress Scenario
-            </button>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="text"
-            value={nlText}
-            onChange={(e) => setNlText(e.target.value)}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
-            placeholder="Type machine readings in English..."
-          />
-          <button
-            type="button"
-            onClick={handleExtractValues}
-            disabled={isExtracting}
-            className="px-4 py-2.5 rounded-xl bg-purple-100 hover:bg-purple-200 text-purple-800 font-semibold text-xs transition-all flex items-center gap-1.5 flex-shrink-0"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Extract Values</span>
-          </button>
-          <button
-            type="button"
-            onClick={handlePredict}
-            disabled={!allFieldsValid || isPredicting}
-            className="px-6 py-2.5 rounded-xl bg-[#6D28D9] hover:bg-[#5B21B6] text-white font-bold text-xs tracking-wide shadow-sm hover:shadow transition-all disabled:opacity-50 flex items-center gap-2 flex-shrink-0"
-          >
-            {isPredicting ? (
-              <>
-                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Evaluating...</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-3.5 h-3.5 fill-white" />
-                <span>Re-Analyze</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* 6 Quick Numerical Inputs */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
-          {/* Machine Type */}
-          <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/40 text-center">
-            <span className="text-[10px] text-slate-400 font-medium block">Machine Type</span>
-            <div className="flex justify-center gap-1 mt-1">
-              {(['L', 'M', 'H'] as const).map(t => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setMType(t)}
-                  className={`px-2 py-0.5 text-xs font-bold rounded ${
-                    mType === t ? 'bg-purple-600 text-white' : 'bg-white border text-slate-700'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Air Temp */}
-          <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/40">
-            <span className="text-[10px] text-slate-400 font-medium block">Air Temp (K)</span>
-            <input
-              type="number"
-              value={airTempStr}
-              onChange={(e) => setAirTempStr(e.target.value)}
-              className="w-full mt-1 px-2 py-0.5 text-xs font-bold border rounded bg-white text-center"
-            />
-          </div>
-
-          {/* Process Temp */}
-          <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/40">
-            <span className="text-[10px] text-slate-400 font-medium block">Process Temp (K)</span>
-            <input
-              type="number"
-              value={procTempStr}
-              onChange={(e) => setProcTempStr(e.target.value)}
-              className="w-full mt-1 px-2 py-0.5 text-xs font-bold border rounded bg-white text-center"
-            />
-          </div>
-
-          {/* Speed */}
-          <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/40">
-            <span className="text-[10px] text-slate-400 font-medium block">Speed (RPM)</span>
-            <input
-              type="number"
-              value={rotSpeedStr}
-              onChange={(e) => setRotSpeedStr(e.target.value)}
-              className="w-full mt-1 px-2 py-0.5 text-xs font-bold border rounded bg-white text-center"
-            />
-          </div>
-
-          {/* Torque */}
-          <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/40">
-            <span className="text-[10px] text-slate-400 font-medium block">Torque (Nm)</span>
-            <input
-              type="number"
-              value={torqueStr}
-              onChange={(e) => setTorqueStr(e.target.value)}
-              className="w-full mt-1 px-2 py-0.5 text-xs font-bold border rounded bg-white text-center"
-            />
-          </div>
-
-          {/* Tool Wear */}
-          <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/40">
-            <span className="text-[10px] text-slate-400 font-medium block">Tool Wear (min)</span>
-            <input
-              type="number"
-              value={toolWearStr}
-              onChange={(e) => setToolWearStr(e.target.value)}
-              className="w-full mt-1 px-2 py-0.5 text-xs font-bold border rounded bg-white text-center"
-            />
-          </div>
-        </div>
-      </section>
 
       {/* Prediction Error Alert */}
       {predictionError && (
